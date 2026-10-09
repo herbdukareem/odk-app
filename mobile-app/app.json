@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "QA Pilot",
+    "slug": "nicare-odk-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "nicareqa",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "NiCare QA uses the camera to attach facility evidence photos to assessments.",
+        "NSLocationWhenInUseUsageDescription": "NiCare QA records facility GPS coordinates for assessment verification.",
+        "NSPhotoLibraryUsageDescription": "NiCare QA can attach supporting evidence from your photo library."
+      }
+    },
+    "android": {
+      "package": "ng.gov.nicare.qa",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "READ_MEDIA_IMAGES"
+      ]
+    },
+    "extra": {
+      "apiBaseUrl": "http://192.168.0.102:8094/api"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-location",
+      "expo-image-picker",
+      "expo-document-picker",
+      "expo-status-bar"
+    ]
+  }
+}

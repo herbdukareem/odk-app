@@ -1,0 +1,35 @@
+{
+  "name": "nicare-odk-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start --port 8093",
+    "android": "expo start --android --port 8093",
+    "ios": "expo start --ios --port 8093",
+    "web": "expo start --web --port 8093",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
+    "@react-native-community/netinfo": "12.0.1",
+    "babel-preset-expo": "~56.0.0",
+    "expo": "~56.0.14",
+    "expo-constants": "~56.0.20",
+    "expo-crypto": "~56.0.4",
+    "expo-document-picker": "~56.0.4",
+    "expo-file-system": "~56.0.8",
+    "expo-image-picker": "~56.0.19",
+    "expo-location": "~56.0.20",
+    "expo-secure-store": "~56.0.4",
+    "expo-sqlite": "~56.0.5",
+    "expo-status-bar": "~56.0.4",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "~5.7.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.14",
+    "typescript": "~6.0.3"
+  }
+}
