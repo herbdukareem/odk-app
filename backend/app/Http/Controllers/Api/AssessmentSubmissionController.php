@@ -84,9 +84,14 @@ class AssessmentSubmissionController
             'submitted_at' => ['nullable', 'date'],
         ]);
 
+        $submission = $submissions->submit($payload);
+
         return response()->json([
             'success' => true,
-            'data' => $submissions->submit($payload),
+            'data' => [
+                'id' => $submission->id,
+                'uuid' => $submission->uuid,
+            ],
         ], 201);
     }
 

@@ -1053,13 +1053,14 @@ export default function App() {
       submitted_at: draft.submittedAt ?? new Date().toISOString(),
     };
 
-    const submission = existingRemoteUuid
+    const remoteUuid = isRemoteSubmissionUuid(existingRemoteUuid) ? existingRemoteUuid : undefined;
+    const submission = remoteUuid
       ? null
-      : await apiPost<{ success: boolean; data: { uuid?: string } }>('/mobile/submissions', payload);
-    const uuid = existingRemoteUuid ?? submission?.data.uuid;
+      : await apiPost<{ success: boolean; data: { id?: number; uuid?: string } }>('/mobile/submissions', payload);
+    const uuid = remoteUuid ?? submission?.data.uuid;
 
-    if (!uuid) {
-      throw new Error('Submission upload did not return a remote reference.');
+    if (!isRemoteSubmissionUuid(uuid)) {
+      throw new Error('Submission upload did not return a valid remote UUID.');
     }
 
     const attachmentStatus = {
@@ -1533,9 +1534,9 @@ function FacilitiesScreen({
 }) {
   return (
     <>
-      <View style={styles.pageIntroCard}>
+      <View style={styles.pageHeading}>
         <Text style={styles.screenTitle}>Select facility</Text>
-        <Text style={styles.muted}>Choose from the facilities assigned to your active work.</Text>
+        <Text style={styles.muted}>Choose an assigned facility to start an assessment.</Text>
       </View>
 
       <View style={styles.filterPanel}>
@@ -1573,7 +1574,6 @@ function FacilitiesScreen({
             <FilterChip key={ward} label={ward} active={selectedWard === ward} onPress={() => onWard(ward)} />
           ))}
         </ScrollView>
-        <SecondaryButton label="Scan facility QR" icon="maximize" onPress={() => Alert.alert('Scanner', 'QR scanner hook is ready for native barcode integration.')} />
       </View>
 
       <View style={styles.sectionHeader}>
@@ -3039,6 +3039,10 @@ function countUploadedAttachments(status?: QueueItem['attachmentStatus']): numbe
   return Object.values(status).filter((item) => item.status === 'uploaded').length;
 }
 
+function isRemoteSubmissionUuid(value: string | undefined): value is string {
+  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+}
+
 function attachmentStatusCount(item: QueueItem, status?: 'uploaded' | 'pending' | 'failed'): number {
   const values = Object.values(item.attachmentStatus ?? {});
   if (values.length === 0) {
@@ -3846,6 +3850,10 @@ const styles = StyleSheet.create({
     color: colors.slate900,
     fontWeight: '900',
     fontSize: 15,
+  },
+  pageHeading: {
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   metaText: {
     color: colors.slate500,
