@@ -98,6 +98,15 @@ const icons: Record<string, IconShape> = {
   save: {
     paths: ['M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z', 'M17 21v-8H7v8', 'M7 3v5h8'],
   },
+  pencil: {
+    paths: ['M4 20h4L19 9l-4-4L4 16v4Z', 'm13.5 6.5 4 4'],
+  },
+  lock: {
+    paths: ['M6 10h12v10H6z', 'M8 10V7a4 4 0 0 1 8 0v3'],
+  },
+  switch: {
+    paths: ['M7 7h11', 'm14 4 4 3-4 3', 'M17 17H6', 'm10 14-4 3 4 3'],
+  },
   wifi: {
     paths: ['M5 13a10 10 0 0 1 14 0', 'M8.5 16.5a5 5 0 0 1 7 0', 'M12 20h.01'],
   },

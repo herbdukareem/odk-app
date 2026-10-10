@@ -1,11 +1,17 @@
 <template>
-  <AuthScreen v-if="!signedIn" @signed-in="signedIn = true" />
+  <AuthScreen v-if="!signedIn" @signed-in="handleSignedIn" />
 
   <div v-else class="app-frame">
-    <AppSidebar :items="navItems" :active="activeSection" @select="openSection" />
+    <AppSidebar :items="visibleNavItems" :active="activeSection" @select="openSection" />
 
     <section class="app-workspace">
-      <AppTopbar @logout="logout" />
+      <AppTopbar
+        :user="currentUser"
+        :impersonating="isImpersonating"
+        :original-user="originalUser"
+        @logout="logout"
+        @stop-impersonation="stopImpersonation"
+      />
 
       <DashboardScreen v-if="currentView === 'dashboard'" @navigate="openSection" />
       <FormsScreen v-else-if="currentView === 'forms'" @open-settings="openFormSettings" />
@@ -15,7 +21,7 @@
       <SubmissionsScreen v-else-if="currentView === 'submissions'" />
       <FacilitiesScreen v-else-if="currentView === 'facilities'" />
       <ReportsScreen v-else-if="currentView === 'reports'" />
-      <TeamScreen v-else-if="currentView === 'team'" />
+      <TeamScreen v-else-if="currentView === 'team'" @session-updated="handleSessionUpdated" />
       <MobileSyncScreen v-else-if="currentView === 'mobile-sync'" />
       <GenericScreen v-else :section="activeSection" />
     </section>
@@ -23,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import AppSidebar, { type NavItem } from './components/layout/AppSidebar.vue';
 import AppTopbar from './components/layout/AppTopbar.vue';
 import AuthScreen from './components/layout/AuthScreen.vue';
@@ -38,11 +44,22 @@ import MobileSyncScreen from './screens/MobileSyncScreen.vue';
 import ReportsScreen from './screens/ReportsScreen.vue';
 import SubmissionsScreen from './screens/SubmissionsScreen.vue';
 import TeamScreen from './screens/TeamScreen.vue';
+import {
+  clearOdkSession,
+  getCurrentOdkUser,
+  getOdkToken,
+  logoutOdkUser,
+  stopOdkImpersonation,
+  type OdkUser,
+} from './services/auth';
 
 type NavLabel = 'Dashboard' | 'Forms' | 'Exercises' | 'Assignment Manager' | 'Submissions' | 'Facilities' | 'Reports' | 'Integrations' | 'Team' | 'Settings';
 type AppView = 'dashboard' | 'forms' | 'form-settings' | 'exercises' | 'assignments' | 'submissions' | 'facilities' | 'reports' | 'team' | 'mobile-sync' | 'generic';
 
-const signedIn = ref(true);
+const signedIn = ref(false);
+const currentUser = ref<OdkUser | null>(null);
+const isImpersonating = ref(false);
+const originalUser = ref<OdkUser | null>(null);
 const activeSection = ref<NavLabel>('Dashboard');
 const currentView = ref<AppView>('dashboard');
 const selectedFormSlug = ref('nicare-qa-checklist');
@@ -60,42 +77,165 @@ const navItems: Array<NavItem & { label: NavLabel }> = [
   { label: 'Team', icon: 'team' },
   { label: 'Settings', icon: 'settings' },
 ];
+const visibleNavItems = computed(() => navItems.filter((item) => (
+  item.label !== 'Team' || currentUser.value?.role?.key === 'admin'
+)));
+
+const sectionPaths: Record<NavLabel, string> = {
+  Dashboard: '/dashboard',
+  Forms: '/forms',
+  Exercises: '/exercises',
+  'Assignment Manager': '/assignments',
+  Submissions: '/submissions',
+  Facilities: '/facilities',
+  Reports: '/reports',
+  Integrations: '/integrations',
+  Team: '/team',
+  Settings: '/settings',
+};
+
+const viewBySection: Partial<Record<NavLabel, AppView>> = {
+  Dashboard: 'dashboard',
+  Forms: 'forms',
+  Exercises: 'exercises',
+  'Assignment Manager': 'assignments',
+  Submissions: 'submissions',
+  Facilities: 'facilities',
+  Reports: 'reports',
+  Team: 'team',
+  Integrations: 'mobile-sync',
+};
+
+const sectionFromPath = (path: string): NavLabel => {
+  const formSettingsPrefix = '/forms/';
+  if (path.startsWith(formSettingsPrefix) && path.endsWith('/settings')) {
+    return 'Forms';
+  }
+
+  const match = Object.entries(sectionPaths).find(([, sectionPath]) => (
+    path === sectionPath || path.startsWith(`${sectionPath}/`)
+  ));
+
+  return (match?.[0] as NavLabel) || 'Dashboard';
+};
+
+const syncRoute = () => {
+  const path = window.location.pathname;
+  const section = sectionFromPath(path);
+
+  activeSection.value = section;
+
+  if (path.startsWith('/forms/') && path.endsWith('/settings')) {
+    const formSettingsPrefix = '/forms/';
+    const formSettingsSuffix = '/settings';
+    selectedFormSlug.value = decodeURIComponent(path.slice(
+      formSettingsPrefix.length,
+      -formSettingsSuffix.length,
+    ));
+    currentView.value = 'form-settings';
+  } else {
+    currentView.value = viewBySection[section] ?? 'generic';
+  }
+
+  const query = new URLSearchParams(window.location.search);
+  assignmentSeedExerciseId.value = currentView.value === 'assignments'
+    ? (query.get('exercise_id') || '')
+    : '';
+};
+
+const navigate = (path: string, replace = false) => {
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  if (currentPath !== path) {
+    window.history[replace ? 'replaceState' : 'pushState']({}, '', path);
+  }
+  syncRoute();
+};
 
 const openSection = (label: string) => {
-  activeSection.value = label as NavLabel;
-  const views: Partial<Record<NavLabel, AppView>> = {
-    Dashboard: 'dashboard',
-    Forms: 'forms',
-    Exercises: 'exercises',
-    'Assignment Manager': 'assignments',
-    Submissions: 'submissions',
-    Facilities: 'facilities',
-    Reports: 'reports',
-    Team: 'team',
-    Integrations: 'mobile-sync',
-  };
-
-  currentView.value = views[label as NavLabel] ?? 'generic';
-  if (currentView.value !== 'assignments') {
-    assignmentSeedExerciseId.value = '';
-  }
+  const section = label as NavLabel;
+  navigate(sectionPaths[section] || '/dashboard');
 };
 
 const openAssignmentManager = (exerciseId?: number | string) => {
-  assignmentSeedExerciseId.value = exerciseId ? String(exerciseId) : '';
-  activeSection.value = 'Assignment Manager';
-  currentView.value = 'assignments';
+  const path = exerciseId
+    ? `/assignments?exercise_id=${encodeURIComponent(String(exerciseId))}`
+    : '/assignments';
+  navigate(path);
 };
 
 const openFormSettings = (slug: string) => {
-  selectedFormSlug.value = slug;
-  activeSection.value = 'Forms';
-  currentView.value = 'form-settings';
+  navigate(`/forms/${encodeURIComponent(slug)}/settings`);
 };
 
-const logout = () => {
+const handleSignedIn = (user: OdkUser) => {
+  currentUser.value = user;
+  signedIn.value = true;
+  isImpersonating.value = false;
+  originalUser.value = null;
+
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  navigate(currentPath === '/' || currentPath === '/login' ? '/dashboard' : currentPath, true);
+};
+
+const handleSessionUpdated = (user: OdkUser, impersonating: boolean, original?: OdkUser | null) => {
+  currentUser.value = user;
+  isImpersonating.value = impersonating;
+  originalUser.value = original ?? null;
+  if (impersonating) {
+    navigate('/dashboard', true);
+  }
+};
+
+const stopImpersonation = async () => {
+  try {
+    currentUser.value = await stopOdkImpersonation();
+    isImpersonating.value = false;
+    originalUser.value = null;
+    navigate('/dashboard', true);
+  } catch {
+    clearOdkSession();
+    signedIn.value = false;
+    navigate('/login', true);
+  }
+};
+
+const logout = async () => {
+  await logoutOdkUser().catch(() => clearOdkSession());
+  currentUser.value = null;
+  isImpersonating.value = false;
+  originalUser.value = null;
   signedIn.value = false;
   activeSection.value = 'Dashboard';
   currentView.value = 'dashboard';
+  navigate('/login', true);
 };
+
+onMounted(async () => {
+  syncRoute();
+  window.addEventListener('popstate', syncRoute);
+
+  if (!getOdkToken()) {
+    if (window.location.pathname === '/') {
+      navigate('/login', true);
+    }
+    return;
+  }
+
+  try {
+    currentUser.value = await getCurrentOdkUser();
+    signedIn.value = true;
+
+    if (window.location.pathname === '/' || window.location.pathname === '/login') {
+      navigate('/dashboard', true);
+    }
+  } catch {
+    clearOdkSession();
+    signedIn.value = false;
+    navigate('/login', true);
+  }
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('popstate', syncRoute);
+});
 </script>

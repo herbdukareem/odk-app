@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Laravel\Sanctum\HasApiTokens;
 
-class OdkUser extends Model
+class OdkUser extends Authenticatable
 {
-    use SoftDeletes;
+    use HasApiTokens, SoftDeletes;
 
     public const STATUS_ACTIVE = 'active';
     public const STATUS_INACTIVE = 'inactive';
@@ -45,5 +47,12 @@ class OdkUser extends Model
     public function assessmentAssignments()
     {
         return $this->hasMany(AssessmentAssignment::class, 'odk_user_id');
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->relationLoaded('role')
+            ? $this->role?->key === 'admin'
+            : $this->role()->where('key', 'admin')->exists();
     }
 }

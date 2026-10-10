@@ -543,6 +543,40 @@ h3 {
   margin-bottom: 14px;
 }
 
+.impersonation-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--qds-amber-100);
+  border-radius: 6px;
+  color: var(--qds-amber-700);
+  background: #fffaf0;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.impersonation-banner button {
+  color: var(--qds-amber-700);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 900;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.auth-error {
+  margin: 12px 0 0;
+  padding: 9px 10px;
+  border: 1px solid #fecdca;
+  border-radius: 6px;
+  color: var(--qds-red-700);
+  background: #fff5f4;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .user-menu {
   display: flex;
   align-items: center;
@@ -1512,7 +1546,7 @@ h3 {
 
 .team-users-table .qds-table__head,
 .team-users-table .qds-table__row {
-  grid-template-columns: minmax(180px, 1.1fr) minmax(150px, 0.9fr) minmax(130px, 0.8fr) 90px;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(150px, 0.9fr) minmax(130px, 0.8fr) 90px minmax(290px, 1.4fr);
 }
 
 .team-teams-table .qds-table__head,

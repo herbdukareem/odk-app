@@ -1,3 +1,5 @@
+import { authenticatedRequest } from './auth';
+
 export type OdkRole = {
   id: number;
   key: string;
@@ -68,22 +70,16 @@ type ApiEnvelope<T> = {
 };
 
 const readJson = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!response.ok) throw new Error(`Request failed with status ${response.status}.`);
+  const response = await authenticatedRequest(url, { method: 'GET' });
   return response.json() as Promise<T>;
 };
 
 const writeJson = async <T>(url: string, method: 'POST' | 'PATCH', body: unknown): Promise<T> => {
-  const response = await fetch(url, {
+  const response = await authenticatedRequest(url, {
     method,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(body),
   });
 
-  if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
 };
 
@@ -102,6 +98,13 @@ export const updateOdkUser = async (id: number, payload: UserPayload): Promise<O
   return response.data;
 };
 
+export const resetOdkUserPassword = async (id: number, password: string, passwordConfirmation: string): Promise<void> => {
+  await writeJson<ApiEnvelope<null>>(`/api/team-access/users/${id}/password`, 'PATCH', {
+    password,
+    password_confirmation: passwordConfirmation,
+  });
+};
+
 export const createOdkTeam = async (payload: TeamPayload): Promise<OdkTeam> => {
   const response = await writeJson<ApiEnvelope<OdkTeam>>('/api/team-access/teams', 'POST', payload);
   return response.data;
@@ -111,7 +114,6 @@ export const updateOdkTeam = async (id: number, payload: TeamPayload): Promise<O
   const response = await writeJson<ApiEnvelope<OdkTeam>>(`/api/team-access/teams/${id}`, 'PATCH', payload);
   return response.data;
 };
-
 export const statusTone = (status?: string): 'green' | 'amber' | 'red' | 'slate' => {
   if (status === 'active') return 'green';
   if (status === 'inactive') return 'amber';

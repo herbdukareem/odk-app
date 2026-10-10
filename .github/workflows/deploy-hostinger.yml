@@ -8,15 +8,6 @@ on:
       - backend/**
       - .github/workflows/deploy-hostinger.yml
   workflow_dispatch:
-    inputs:
-      run_migrations:
-        description: Run php artisan migrate --force after deploy
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
 
 permissions:
   contents: read
@@ -111,11 +102,9 @@ jobs:
             "cd \"$CPANEL_DEPLOY_PATH\" && tar -xzf .odk-backend-deploy.tar.gz && rm -f .odk-backend-deploy.tar.gz"
 
       - name: Run remote post-deploy tasks
-        env:
-          RUN_MIGRATIONS: ${{ github.event.inputs.run_migrations || 'false' }}
         run: |
           ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" \
-            "export CPANEL_DEPLOY_PATH='$CPANEL_DEPLOY_PATH' RUN_MIGRATIONS='$RUN_MIGRATIONS'; /bin/bash -se" <<'EOF'
+            "export CPANEL_DEPLOY_PATH='$CPANEL_DEPLOY_PATH'; /bin/bash -se" <<'EOF
           set -euo pipefail
           set -x
           cd "$CPANEL_DEPLOY_PATH"
@@ -138,12 +127,10 @@ jobs:
           fi
 
           php artisan optimize:clear || true
+          php artisan migrate --force
+          php artisan odk:ensure-nicare-form
           php artisan config:cache
           php artisan route:cache || true
           php artisan view:cache
           php artisan storage:link || true
-
-          if [ "$RUN_MIGRATIONS" = "true" ]; then
-            php artisan migrate --force
-          fi
           EOF

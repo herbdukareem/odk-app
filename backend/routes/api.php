@@ -11,11 +11,18 @@ use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\MobileAssignmentController;
 use App\Http\Controllers\Api\MobileReferenceController;
 use App\Http\Controllers\Api\NicareIntegrationController;
+use App\Http\Controllers\Api\OdkAuthController;
 use App\Http\Controllers\Api\OdkTeamAccessController;
 use App\Http\Controllers\Api\ReferenceFacilityController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class);
+Route::post('/auth/login', [OdkAuthController::class, 'login']);
+Route::middleware('auth:sanctum')->group(function (): void {
+    Route::get('/auth/me', [OdkAuthController::class, 'me']);
+    Route::post('/auth/logout', [OdkAuthController::class, 'logout']);
+    Route::post('/auth/stop-impersonation', [OdkAuthController::class, 'stopImpersonation']);
+});
 Route::get('/bootstrap', BootstrapController::class);
 Route::get('/dashboard', DashboardController::class);
 Route::get('/forms', [AssessmentFormController::class, 'index']);
@@ -51,8 +58,12 @@ Route::post('/mobile/submissions/{submission:uuid}/attachments', [AssessmentSubm
 Route::get('/integrations/nicare/status', [NicareIntegrationController::class, 'status']);
 Route::post('/integrations/nicare/sync', [NicareIntegrationController::class, 'sync']);
 Route::get('/facilities/reference', [ReferenceFacilityController::class, 'index']);
-Route::get('/team-access', [OdkTeamAccessController::class, 'index']);
-Route::post('/team-access/users', [OdkTeamAccessController::class, 'storeUser']);
-Route::patch('/team-access/users/{user}', [OdkTeamAccessController::class, 'updateUser']);
-Route::post('/team-access/teams', [OdkTeamAccessController::class, 'storeTeam']);
-Route::patch('/team-access/teams/{team}', [OdkTeamAccessController::class, 'updateTeam']);
+Route::middleware('auth:sanctum')->group(function (): void {
+    Route::get('/team-access', [OdkTeamAccessController::class, 'index']);
+    Route::post('/team-access/users', [OdkTeamAccessController::class, 'storeUser']);
+    Route::patch('/team-access/users/{user}', [OdkTeamAccessController::class, 'updateUser']);
+    Route::patch('/team-access/users/{user}/password', [OdkTeamAccessController::class, 'resetPassword']);
+    Route::post('/team-access/users/{user}/impersonate', [OdkAuthController::class, 'impersonate']);
+    Route::post('/team-access/teams', [OdkTeamAccessController::class, 'storeTeam']);
+    Route::patch('/team-access/teams/{team}', [OdkTeamAccessController::class, 'updateTeam']);
+});

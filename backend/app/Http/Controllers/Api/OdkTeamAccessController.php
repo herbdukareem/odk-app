@@ -10,11 +10,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 
 class OdkTeamAccessController
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        $this->assertAdmin($request);
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -34,6 +37,8 @@ class OdkTeamAccessController
 
     public function storeUser(Request $request): JsonResponse
     {
+        $this->assertAdmin($request);
+
         $data = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:odk_users,email'],
@@ -67,10 +72,11 @@ class OdkTeamAccessController
 
     public function updateUser(Request $request, OdkUser $user): JsonResponse
     {
+        $this->assertAdmin($request);
+
         $data = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('odk_users', 'email')->ignore($user->id)],
-            'password' => ['nullable', 'string', 'min:8', 'max:255'],
             'phone' => ['nullable', 'string', 'max:50'],
             'role_key' => ['required', 'string', 'exists:odk_roles,key'],
             'staff_code' => ['nullable', 'string', 'max:100'],
@@ -93,17 +99,32 @@ class OdkTeamAccessController
             'status' => $data['status'],
         ];
 
-        if (!empty($data['password'])) {
-            $values['password'] = Hash::make($data['password']);
-        }
-
         $user->fill($values)->save();
 
         return response()->json(['success' => true, 'data' => $user->fresh(['role', 'teams'])]);
     }
 
+    public function resetPassword(Request $request, OdkUser $user): JsonResponse
+    {
+        $this->assertAdmin($request);
+
+        $data = $request->validate([
+            'password' => ['required', 'confirmed', Password::min(8)->letters()->mixedCase()->numbers()->symbols()],
+        ]);
+
+        $user->forceFill(['password' => Hash::make($data['password'])])->save();
+        $user->tokens()->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User password reset successfully.',
+        ]);
+    }
+
     public function storeTeam(Request $request): JsonResponse
     {
+        $this->assertAdmin($request);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255', 'unique:odk_teams,name'],
             'description' => ['nullable', 'string'],
@@ -130,6 +151,8 @@ class OdkTeamAccessController
 
     public function updateTeam(Request $request, OdkTeam $team): JsonResponse
     {
+        $this->assertAdmin($request);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('odk_teams', 'name')->ignore($team->id)],
             'description' => ['nullable', 'string'],
@@ -151,6 +174,11 @@ class OdkTeamAccessController
         $this->syncMembers($team, $data['member_ids'] ?? [], $data['lead_user_id'] ?? null);
 
         return response()->json(['success' => true, 'data' => $team->fresh(['lead', 'members.role'])->loadCount('members')]);
+    }
+
+    private function assertAdmin(Request $request): void
+    {
+        abort_unless($request->user() instanceof OdkUser && $request->user()->isAdmin(), 403, 'Only ODK admins can manage team access.');
     }
 
     private function syncMembers(OdkTeam $team, array $memberIds, ?int $leadUserId): void
