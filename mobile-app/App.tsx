@@ -1086,7 +1086,7 @@ export default function App() {
             status: 'failed',
             error: message,
           };
-          throw new SyncUploadError(`Submission saved, but evidence upload failed: ${attachment.name}`, uuid, attachmentStatus);
+          throw new SyncUploadError('Submission saved, but an evidence upload failed.', uuid, attachmentStatus);
         }
       }
     }
@@ -2107,11 +2107,30 @@ function SyncScreen({
   return (
     <>
       <Text style={styles.screenTitle}>Sync centre</Text>
-      <View style={styles.readyBox}>
-        <Text style={styles.readyText}>{lastMessage}</Text>
-        <Text style={styles.muted}>Uploads are retried from this queue.</Text>
+      <View style={styles.syncStatusPanel}>
+        <View style={styles.syncStatusIcon}>
+          <Feather name={queue.length > 0 ? 'clock' : 'check-circle'} size={20} color={colors.green800} />
+        </View>
+        <View style={styles.flexOne}>
+          <Text style={styles.syncStatusTitle}>{queue.length > 0 ? `${queue.length} assessment${queue.length === 1 ? '' : 's'} waiting` : 'All caught up'}</Text>
+          <Text style={styles.muted}>{lastMessage}</Text>
+        </View>
       </View>
-      <PrimaryButton label={syncing ? 'Syncing...' : `Sync now (${queue.length})`} onPress={onSync} disabled={syncing || queue.length === 0} />
+      <View style={styles.syncSummaryRow}>
+        <View style={styles.syncSummaryItem}>
+          <Text style={styles.syncSummaryValue}>{queue.length}</Text>
+          <Text style={styles.syncSummaryLabel}>Pending</Text>
+        </View>
+        <View style={styles.syncSummaryItem}>
+          <Text style={styles.syncSummaryValue}>{queue.filter((item) => item.status === 'failed').length}</Text>
+          <Text style={styles.syncSummaryLabel}>Failed</Text>
+        </View>
+        <View style={styles.syncSummaryItem}>
+          <Text style={styles.syncSummaryValue}>{history.length}</Text>
+          <Text style={styles.syncSummaryLabel}>Synced</Text>
+        </View>
+      </View>
+      <PrimaryButton icon="refresh-cw" label={syncing ? 'Syncing...' : `Sync now (${queue.length})`} onPress={onSync} disabled={syncing || queue.length === 0} />
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Upload queue</Text>
@@ -2130,16 +2149,19 @@ function SyncScreen({
             Attempt {item.attempts}{item.lastAttemptAt ? ` - Last tried ${formatTime(item.lastAttemptAt)}` : ''}
           </Text>
           {item.remoteUuid ? <Text style={styles.metaText}>Remote submission: {item.remoteUuid}</Text> : null}
-          {item.draft.attachments.length > 0 ? (
+          {item.draft.attachments.length > 0 || Object.keys(item.attachmentStatus ?? {}).length > 0 ? (
             <View style={styles.attachmentStatusBox}>
-              <Text style={styles.attachmentStatusTitle}>Evidence upload</Text>
-              {item.draft.attachments.map((attachment) => {
-                const status = item.attachmentStatus?.[attachment.id]?.status ?? 'pending';
-                const failed = status === 'failed';
+              <View style={styles.rowBetween}>
+                <Text style={styles.attachmentStatusTitle}>Evidence</Text>
+                <Text style={styles.metaText}>{attachmentStatusCount(item)} file{attachmentStatusCount(item) === 1 ? '' : 's'}</Text>
+              </View>
+              {(['uploaded', 'pending', 'failed'] as const).map((status) => {
+                const count = attachmentStatusCount(item, status);
+                if (count === 0) return null;
                 return (
-                  <View key={attachment.id} style={styles.attachmentStatusRow}>
-                    <Text numberOfLines={1} style={styles.flexOne}>{attachment.name}</Text>
-                    <StatusPill label={status} tone={failed ? 'danger' : status === 'uploaded' ? 'success' : 'warning'} />
+                  <View key={status} style={styles.attachmentStatusRow}>
+                    <Text style={styles.attachmentStatusLabel}>{status === 'uploaded' ? 'Uploaded' : status === 'pending' ? 'Pending' : 'Failed'}</Text>
+                    <StatusPill label={String(count)} tone={status === 'failed' ? 'danger' : status === 'uploaded' ? 'success' : 'warning'} />
                   </View>
                 );
               })}
@@ -2927,17 +2949,19 @@ function toNullableNumber(value: unknown): number | null {
 }
 
 async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetchWithTimeout(`${API_BASE_URL}${path}`, { headers: { Accept: 'application/json' } });
+  const url = `${API_BASE_URL}${path}`;
+  const response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } });
 
   if (!response.ok) {
-    throw new Error(`Request failed (${response.status}) from ${API_BASE_URL}.`);
+    throw new Error(await responseError(response, url));
   }
 
   return response.json() as Promise<T>;
 }
 
 async function apiPost<T>(path: string, payload: unknown): Promise<T> {
-  const response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
+  const url = `${API_BASE_URL}${path}`;
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -2947,7 +2971,7 @@ async function apiPost<T>(path: string, payload: unknown): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed (${response.status}) from ${API_BASE_URL}.`);
+    throw new Error(await responseError(response, url));
   }
 
   return response.json() as Promise<T>;
@@ -2961,13 +2985,30 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Connection timed out after ${Math.round(timeoutMs / 1000)}s. Check that your phone is on the same Wi-Fi and can reach ${API_BASE_URL}.`);
+      throw new Error(`Connection timed out after ${Math.round(timeoutMs / 1000)}s while contacting ${url}.`);
     }
 
-    throw new Error(`Cannot reach ${API_BASE_URL}. Check Wi-Fi, firewall, and that the Laravel API server is running.`);
+    throw new Error(`Cannot reach ${url}. Check the production API and your phone's internet connection.`);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function responseError(response: Response, url: string): Promise<string> {
+  let detail = '';
+  try {
+    const raw = await response.text();
+    try {
+      const json = JSON.parse(raw) as { message?: unknown; error?: unknown };
+      detail = String(json.message ?? json.error ?? '').trim();
+    } catch {
+      detail = raw.match(/<title[^>]*>(.*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim() ?? '';
+    }
+  } catch {
+    // Keep the status and URL when the server response cannot be read.
+  }
+
+  return `Request failed (${response.status}) at ${url}${detail ? `: ${detail}` : '.'}`;
 }
 
 class SyncUploadError extends Error {
@@ -2996,6 +3037,15 @@ function countUploadedAttachments(status?: QueueItem['attachmentStatus']): numbe
   }
 
   return Object.values(status).filter((item) => item.status === 'uploaded').length;
+}
+
+function attachmentStatusCount(item: QueueItem, status?: 'uploaded' | 'pending' | 'failed'): number {
+  const values = Object.values(item.attachmentStatus ?? {});
+  if (values.length === 0) {
+    return status ? (status === 'pending' ? item.draft.attachments.length : 0) : item.draft.attachments.length;
+  }
+
+  return status ? values.filter((attachment) => attachment.status === status).length : values.length;
 }
 
 async function loadJson<T>(key: string, fallback: T): Promise<T> {
@@ -3812,6 +3862,53 @@ const styles = StyleSheet.create({
     color: colors.green900,
     fontWeight: '900',
   },
+  syncStatusPanel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: 14,
+    marginTop: 8,
+  },
+  syncStatusIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.green100,
+  },
+  syncStatusTitle: {
+    color: colors.slate900,
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  syncSummaryRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    marginBottom: 14,
+  },
+  syncSummaryItem: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+  },
+  syncSummaryValue: {
+    color: colors.green900,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  syncSummaryLabel: {
+    color: colors.slate500,
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 2,
+    textTransform: 'uppercase',
+  },
   readyPanel: {
     borderRadius: 8,
     borderWidth: 1,
@@ -4312,7 +4409,12 @@ const styles = StyleSheet.create({
     color: colors.slate900,
     fontSize: 12,
     fontWeight: '900',
-    marginBottom: 6,
+  },
+  attachmentStatusLabel: {
+    flex: 1,
+    color: colors.slate600,
+    fontSize: 12,
+    fontWeight: '800',
   },
   attachmentStatusRow: {
     flexDirection: 'row',
