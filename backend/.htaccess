@@ -1,0 +1,9 @@
+<IfModule mod_rewrite.c>
+    Options -MultiViews -Indexes
+    RewriteEngine On
+
+    RewriteRule ^(?:\.env|vendor|storage|bootstrap|app|config|database|resources|routes|tests)(?:/|$) - [F,L,NC]
+
+    RewriteCond %{REQUEST_URI} !^/public(?:/|$)
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
