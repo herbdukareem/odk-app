@@ -109,7 +109,7 @@ class AssessmentSubmissionController
     public function uploadAttachment(Request $request, AssessmentSubmission $submission, AssessmentSubmissionService $submissions): JsonResponse
     {
         $payload = $request->validate([
-            'file' => ['required', 'file', 'max:20480', 'mimes:jpg,jpeg,png,pdf,webp'],
+            'file' => ['required', 'file', 'max:20480', 'mimes:jpg,jpeg,png,pdf,webp,svg'],
             'field_key' => ['nullable', 'string', 'max:255'],
             'type' => ['nullable', 'string', 'max:40'],
             'original_name' => ['nullable', 'string', 'max:255'],

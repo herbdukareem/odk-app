@@ -14,6 +14,7 @@
       />
 
       <DashboardScreen v-if="currentView === 'dashboard'" @navigate="openSection" />
+      <MyAssessmentsScreen v-else-if="currentView === 'my-assessments'" :user="currentUser" />
       <FormsScreen v-else-if="currentView === 'forms'" @open-settings="openFormSettings" />
       <FormSettingsScreen v-else-if="currentView === 'form-settings'" :slug="selectedFormSlug" @back="openSection('Forms')" />
       <ExercisesScreen v-else-if="currentView === 'exercises'" @manage-assignments="openAssignmentManager" />
@@ -41,6 +42,7 @@ import FormsScreen from './screens/FormsScreen.vue';
 import FormSettingsScreen from './screens/FormSettingsScreen.vue';
 import GenericScreen from './screens/GenericScreen.vue';
 import MobileSyncScreen from './screens/MobileSyncScreen.vue';
+import MyAssessmentsScreen from './screens/MyAssessmentsScreen.vue';
 import ReportsScreen from './screens/ReportsScreen.vue';
 import SubmissionsScreen from './screens/SubmissionsScreen.vue';
 import TeamScreen from './screens/TeamScreen.vue';
@@ -53,8 +55,8 @@ import {
   type OdkUser,
 } from './services/auth';
 
-type NavLabel = 'Dashboard' | 'Forms' | 'Exercises' | 'Assignment Manager' | 'Submissions' | 'Facilities' | 'Reports' | 'Integrations' | 'Team' | 'Settings';
-type AppView = 'dashboard' | 'forms' | 'form-settings' | 'exercises' | 'assignments' | 'submissions' | 'facilities' | 'reports' | 'team' | 'mobile-sync' | 'generic';
+type NavLabel = 'Dashboard' | 'My assessments' | 'Forms' | 'Exercises' | 'Assignment Manager' | 'Submissions' | 'Facilities' | 'Reports' | 'Integrations' | 'Team' | 'Settings';
+type AppView = 'dashboard' | 'my-assessments' | 'forms' | 'form-settings' | 'exercises' | 'assignments' | 'submissions' | 'facilities' | 'reports' | 'team' | 'mobile-sync' | 'generic';
 
 const signedIn = ref(false);
 const currentUser = ref<OdkUser | null>(null);
@@ -67,6 +69,7 @@ const assignmentSeedExerciseId = ref('');
 
 const navItems: Array<NavItem & { label: NavLabel }> = [
   { label: 'Dashboard', icon: 'dashboard' },
+  { label: 'My assessments', icon: 'clipboard' },
   { label: 'Forms', icon: 'forms' },
   { label: 'Exercises', icon: 'calendar' },
   { label: 'Assignment Manager', icon: 'clipboard' },
@@ -83,6 +86,7 @@ const visibleNavItems = computed(() => navItems.filter((item) => (
 
 const sectionPaths: Record<NavLabel, string> = {
   Dashboard: '/dashboard',
+  'My assessments': '/my-assessments',
   Forms: '/forms',
   Exercises: '/exercises',
   'Assignment Manager': '/assignments',
@@ -96,6 +100,7 @@ const sectionPaths: Record<NavLabel, string> = {
 
 const viewBySection: Partial<Record<NavLabel, AppView>> = {
   Dashboard: 'dashboard',
+  'My assessments': 'my-assessments',
   Forms: 'forms',
   Exercises: 'exercises',
   'Assignment Manager': 'assignments',

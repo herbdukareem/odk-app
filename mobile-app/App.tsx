@@ -1,6 +1,7 @@
 import NetInfo from '@react-native-community/netinfo';
 import Constants from 'expo-constants';
 import * as DocumentPicker from 'expo-document-picker';
+import { File, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import Storage from 'expo-sqlite/kv-store';
@@ -20,6 +21,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import DataKitLogo from './components/DataKitLogo';
 
 type Screen = 'Home' | 'Forms' | 'Facilities' | 'Assessment' | 'Review' | 'Sync' | 'Assessments';
 
@@ -161,7 +163,7 @@ type MobileAssignment = {
 type EvidenceAttachment = {
   id: string;
   fieldKey: string;
-  type: 'photo' | 'document';
+  type: 'photo' | 'document' | 'signature';
   uri: string;
   name: string;
   mimeType: string;
@@ -329,8 +331,8 @@ const assessor = {
 const TAB_ITEMS: Array<{ screen: Screen; label: string; icon: keyof typeof Feather.glyphMap }> = [
   { screen: 'Home', label: 'Home', icon: 'home' },
   { screen: 'Forms', label: 'Forms', icon: 'file-text' },
-  { screen: 'Facilities', label: 'Facilities', icon: 'map-pin' },
-  { screen: 'Assessments', label: 'Assessments', icon: 'clipboard' },
+  { screen: 'Facilities', label: 'Sites', icon: 'map-pin' },
+  { screen: 'Assessments', label: 'Assess', icon: 'clipboard' },
   { screen: 'Sync', label: 'Sync', icon: 'refresh-cw' },
 ];
 
@@ -1005,6 +1007,8 @@ export default function App() {
   ): Promise<{ uuid?: string; attachmentsUploaded: number }> {
     const draftForm = draft.formSchema ?? formForDraft(draft, forms.length > 0 ? forms : [fallbackForm]) ?? fallbackForm;
     const localValidation = validateDraft(draftForm, draft);
+    const signatureAttachments = await createSignatureAttachments(draft);
+    const submissionAttachments = [...draft.attachments, ...signatureAttachments];
     const payload = {
       client_submission_id: draft.id,
       assessment_id: draft.assessmentId,
@@ -1059,12 +1063,12 @@ export default function App() {
     }
 
     const attachmentStatus = {
-      ...initialAttachmentStatus(draft),
+      ...initialAttachmentStatus({ ...draft, attachments: submissionAttachments }),
       ...(previousAttachmentStatus ?? {}),
     };
     let attachmentsUploaded = countUploadedAttachments(attachmentStatus);
     if (uuid) {
-      for (const attachment of draft.attachments) {
+      for (const attachment of submissionAttachments) {
         if (attachmentStatus[attachment.id]?.status === 'uploaded') {
           continue;
         }
@@ -1111,6 +1115,31 @@ export default function App() {
     if (!response.ok) {
       throw new Error(`Evidence upload failed (${response.status}).`);
     }
+  }
+
+  async function createSignatureAttachments(draft: DraftAssessment): Promise<EvidenceAttachment[]> {
+    const signatureFields = (draft.formSchema?.fields ?? []).filter((field) => field.type === 'signature');
+    const attachments: EvidenceAttachment[] = [];
+
+    for (const field of signatureFields) {
+      const points = parseSignature(String(draft.answers[field.key] ?? ''));
+      if (points.length === 0) continue;
+
+      const file = new File(Paths.cache, `signature-${draft.id}-${field.key}.svg`);
+      file.create({ overwrite: true });
+      file.write(signatureSvg(points));
+      attachments.push({
+        id: `signature-${draft.id}-${field.key}`,
+        fieldKey: field.key,
+        type: 'signature',
+        uri: file.uri,
+        name: `${field.key}.svg`,
+        mimeType: 'image/svg+xml',
+        capturedAt: new Date().toISOString(),
+      });
+    }
+
+    return attachments;
   }
 
   if (!ready) {
@@ -1264,7 +1293,7 @@ export default function App() {
               style={[styles.tabItem, item.screen === screen && styles.tabItemActive]}
               onPress={() => setScreen(item.screen)}
             >
-              <Feather name={item.icon} size={16} color={item.screen === screen ? colors.green800 : colors.slate500} />
+              <Feather name={item.icon} size={16} color={item.screen === screen ? colors.white : '#a9cbb9'} />
               <Text style={[styles.tabText, item.screen === screen && styles.tabTextActive]}>{item.label}</Text>
             </Pressable>
           ))}
@@ -1310,10 +1339,7 @@ function HomeScreen({
   return (
     <>
       <View style={styles.fieldTopBar}>
-        <View style={styles.fieldBrandLockup}>
-          <Text style={styles.fieldLogoMark}>NiCare</Text>
-          <Text style={styles.fieldLogoSub}>QA Field</Text>
-        </View>
+        <DataKitLogo />
         <StatusPill label="Online" tone="success" />
       </View>
 
@@ -1347,15 +1373,17 @@ function HomeScreen({
 
       <View style={styles.roundHeader}>
         <Text style={styles.roundTitle}>The round</Text>
-        <Text style={styles.roundHint}>{assignments.length} stop(s)</Text>
+        <Text style={styles.roundHint}>{assignments.length} stops</Text>
       </View>
       <View style={styles.roundList}>
         {roundFacilities.map((facility, index) => (
           <Pressable key={`${facility.id}-${facility.assignment_uuid ?? index}`} style={styles.roundRow} onPress={onStart}>
-            <Text style={styles.roundNumber}>{String(index + 1).padStart(2, '0')}</Text>
+            <View style={styles.roundNumber}>
+              <Text style={styles.roundNumberText}>{String(index + 1)}</Text>
+            </View>
             <View style={styles.flexOne}>
               <Text style={styles.roundFacility}>{facility.name}</Text>
-              <Text style={styles.roundMeta}>{facility.lga ?? 'Unknown LGA'} - {facility.ward ?? 'Unknown ward'}</Text>
+              <Text style={styles.roundMeta}>{formatRoundMeta(facility)}</Text>
             </View>
             <Feather name="chevron-right" size={18} color={colors.green800} />
           </Pressable>
@@ -2187,17 +2215,7 @@ function AssessmentsScreen({
 }
 
 function Brand({ large = false }: { large?: boolean }) {
-  return (
-    <View style={[styles.brandRow, large && styles.brandRowLarge]}>
-      <View style={[styles.brandMark, large && styles.brandMarkLarge]}>
-        <Text style={[styles.brandMarkText, large && styles.brandMarkTextLarge]}>N</Text>
-      </View>
-      <View>
-        <Text style={[styles.brandTitle, large && styles.brandTitleLarge]}>NiCare</Text>
-        <Text style={styles.brandSubtitle}>Quality Assurance</Text>
-      </View>
-    </View>
-  );
+  return <DataKitLogo large={large} />;
 }
 
 function MetricTile({ value, label, icon }: { value: string; label: string; icon?: keyof typeof Feather.glyphMap }) {
@@ -3017,6 +3035,17 @@ function formatTime(value: string): string {
   }
 }
 
+function formatRoundMeta(facility: Facility): string {
+  if (facility.assignment_due_at) {
+    const due = new Date(facility.assignment_due_at);
+    if (!Number.isNaN(due.getTime())) {
+      return `Due ${new Intl.DateTimeFormat('en-NG', { day: '2-digit', month: 'short' }).format(due)} - ${facility.lga ?? 'Unknown LGA'}`;
+    }
+  }
+
+  return `${facility.lga ?? 'Unknown LGA'} - ${facility.ward ?? 'Unknown ward'}`;
+}
+
 function formatScore(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
@@ -3100,10 +3129,15 @@ function parseSignature(value: string): Array<{ x: number; y: number }> {
   }
 }
 
+function signatureSvg(points: Array<{ x: number; y: number }>): string {
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="110" viewBox="0 0 300 110"><rect width="300" height="110" fill="#ffffff"/><path d="${path}" fill="none" stroke="#0b3d2a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f2f7f4',
+    backgroundColor: '#f5f4ee',
   },
   centerScreen: {
     flex: 1,
@@ -3119,12 +3153,12 @@ const styles = StyleSheet.create({
   },
   appScreen: {
     flex: 1,
-    backgroundColor: '#f2f7f4',
+    backgroundColor: '#f5f4ee',
   },
   content: {
-    paddingHorizontal: 18,
-    paddingTop: Math.max(Constants.statusBarHeight + 26, 56),
-    paddingBottom: 164,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 122,
   },
   header: {
     flexDirection: 'row',
@@ -3365,12 +3399,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: colors.green900,
-    backgroundColor: colors.white,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 12,
+    backgroundColor: '#f5f4ee',
+    paddingVertical: 0,
+    marginBottom: 14,
   },
   fieldBrandLockup: {
     flexDirection: 'row',
@@ -3390,7 +3421,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   fieldDate: {
-    color: colors.green900,
+    color: colors.slate600,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0,
@@ -3398,9 +3429,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   fieldGreeting: {
-    color: colors.green900,
-    fontSize: 30,
-    lineHeight: 30,
+    color: colors.slate900,
+    fontSize: 32,
+    lineHeight: 34,
     fontWeight: '900',
     marginBottom: 14,
   },
@@ -3670,16 +3701,22 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   roundNumber: {
-    color: colors.green900,
-    fontSize: 16,
-    fontWeight: '900',
     width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.green100,
+  },
+  roundNumberText: {
+    color: colors.green800,
+    fontSize: 12,
+    fontWeight: '900',
   },
   roundFacility: {
     color: colors.green900,
     fontSize: 13,
     fontWeight: '900',
-    textTransform: 'uppercase',
   },
   roundMeta: {
     color: colors.green700,
@@ -3689,11 +3726,9 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   offlinePackCard: {
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: colors.green900,
-    backgroundColor: colors.white,
-    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#dff0e5',
+    padding: 14,
     marginTop: 6,
     marginBottom: 12,
   },
@@ -4303,15 +4338,13 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 12,
-    minHeight: 66,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: 74,
     paddingHorizontal: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
+    borderRadius: 0,
+    backgroundColor: colors.green950,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
@@ -4321,19 +4354,20 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 52,
-    borderRadius: 8,
+    minHeight: 58,
+    borderRadius: 14,
     gap: 3,
   },
   tabItemActive: {
-    backgroundColor: colors.green50,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    marginVertical: 8,
   },
   tabText: {
-    color: colors.slate600,
+    color: '#a9cbb9',
     fontSize: 9,
     fontWeight: '800',
   },
   tabTextActive: {
-    color: colors.green700,
+    color: colors.white,
   },
 });

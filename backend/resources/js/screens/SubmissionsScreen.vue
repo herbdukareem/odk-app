@@ -110,6 +110,17 @@
             <span>{{ selectedSubmission.assessor_name || 'Unknown assessor' }} | {{ formatDateTime(selectedSubmission.submitted_at) }}</span>
           </div>
 
+          <div class="review-score-hero">
+            <div>
+              <span>Assessment score</span>
+              <strong>{{ scoreLabel(selectedSubmission) }}</strong>
+              <small>{{ scorePercentLabel }}</small>
+            </div>
+            <div class="review-score-track" aria-label="Assessment score percentage">
+              <span :style="{ width: `${scorePercent}%` }" />
+            </div>
+          </div>
+
           <div class="review-metrics">
             <div>
               <strong>{{ scoreLabel(selectedSubmission) }}</strong>
@@ -146,20 +157,20 @@
               <h3>Answers requiring review</h3>
               <QdsBadge tone="amber">{{ reviewAnswerRows.length }}</QdsBadge>
             </div>
-            <div v-for="answer in reviewAnswerRows.slice(0, 8)" :key="answer.key" class="answer-row flagged">
+            <div v-for="answer in reviewAnswerRows" :key="answer.key" class="answer-row flagged">
               <span>{{ answer.label }}</span>
               <strong>{{ answer.value }}</strong>
             </div>
           </div>
 
-          <div v-if="answerRows.length" class="review-block">
+          <div v-if="nonSignatureAnswerRows.length" class="review-block">
             <div class="review-block__heading">
               <h3>Submitted answers</h3>
-              <QdsBadge tone="blue">{{ answerRows.length }}</QdsBadge>
+              <QdsBadge tone="blue">{{ nonSignatureAnswerRows.length }}</QdsBadge>
             </div>
-            <div v-for="answer in answerRows.slice(0, 12)" :key="answer.key" class="answer-row">
+            <div v-for="answer in nonSignatureAnswerRows" :key="answer.key" class="answer-row">
               <span>{{ answer.label }}</span>
-              <strong>{{ answer.value }}</strong>
+              <strong>{{ answer.value }}<small v-if="answer.score !== null">Score {{ answer.score }}</small></strong>
             </div>
           </div>
 
@@ -167,7 +178,11 @@
             <h3>Signatures</h3>
             <div v-for="signature in signatureRows" :key="signature.key" class="answer-row">
               <span>{{ signature.label }}</span>
-              <strong>{{ signature.value }}</strong>
+              <div v-if="signatureAttachment(signature.key)" class="signature-preview">
+                <img :src="signatureAttachment(signature.key)?.download_url || ''" :alt="`${signature.label} image`">
+                <a :href="signatureAttachment(signature.key)?.download_url || '#'" target="_blank" rel="noreferrer">Open image</a>
+              </div>
+              <strong v-else>{{ signature.value }}</strong>
             </div>
           </div>
 
@@ -288,9 +303,10 @@ const answerRows = computed(() => {
 
   return submission.answers.map((answer) => {
     const key = String(answer.field_key ?? 'answer');
+    const field = submission.form_version?.fields?.find((candidate) => candidate.key === key);
     return {
       key,
-      label: titleCase(key),
+      label: field?.label || titleCase(key),
       value: formatAnswerValue(extractAnswerValue(answer.value)),
       requiresReview: Boolean(answer.requires_review),
       score: answer.score ?? null,
@@ -298,7 +314,20 @@ const answerRows = computed(() => {
   });
 });
 const reviewAnswerRows = computed(() => answerRows.value.filter((answer) => answer.requiresReview));
+const nonSignatureAnswerRows = computed(() => answerRows.value.filter((answer) => !answer.key.includes('signature') && !answer.key.includes('attestation')));
 const signatureRows = computed(() => answerRows.value.filter((answer) => answer.key.includes('signature') || answer.key.includes('attestation')));
+const scorePercent = computed(() => {
+  const submission = selectedSubmission.value;
+  if (!submission) return 0;
+  if (typeof submission.score_details?.percent === 'number') return Math.max(0, Math.min(100, submission.score_details.percent));
+  const max = submission.score_details?.max ?? submission.form_version?.scoring_max_score ?? submission.form?.scoring_max_score;
+  if (!max || submission.score_total === null || submission.score_total === undefined) return 0;
+  return Math.max(0, Math.min(100, (submission.score_total / Number(max)) * 100));
+});
+const scorePercentLabel = computed(() => `${scorePercent.value.toFixed(0)}% of maximum score`);
+const signatureAttachment = (fieldKey: string) => selectedSubmission.value?.attachments?.find((attachment) => (
+  attachment.field_key === fieldKey || attachment.type === 'signature'
+));
 const gpsLabel = computed(() => {
   const submission = selectedSubmission.value;
   if (!submission?.gps_latitude || !submission?.gps_longitude) return '';
@@ -632,6 +661,47 @@ onMounted(async () => {
   background: var(--qds-slate-50);
 }
 
+.review-score-hero {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid rgba(8, 122, 74, 0.25);
+  border-radius: 8px;
+  color: var(--qds-white);
+  background: var(--qds-green-900);
+}
+
+.review-score-hero > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.review-score-hero span,
+.review-score-hero small {
+  color: var(--qds-green-100);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.review-score-hero strong {
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.review-score-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.review-score-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #8be0b5;
+}
+
 .review-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -689,8 +759,31 @@ onMounted(async () => {
   font-size: 11px;
 }
 
+.answer-row strong small {
+  display: block;
+  margin-top: 3px;
+  color: var(--qds-green-700);
+  font-size: 10px;
+}
+
 .answer-row.flagged {
   color: var(--qds-amber-700);
+}
+
+.signature-preview {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+
+.signature-preview img {
+  display: block;
+  width: min(220px, 100%);
+  height: 74px;
+  border: 1px solid var(--qds-slate-200);
+  border-radius: 6px;
+  object-fit: contain;
+  background: #fff;
 }
 
 .evidence-list {

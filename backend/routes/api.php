@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\MobileReferenceController;
 use App\Http\Controllers\Api\NicareIntegrationController;
 use App\Http\Controllers\Api\OdkAuthController;
 use App\Http\Controllers\Api\OdkTeamAccessController;
+use App\Http\Controllers\Api\OnlineAssessmentController;
 use App\Http\Controllers\Api\ReferenceFacilityController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,6 +23,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/auth/me', [OdkAuthController::class, 'me']);
     Route::post('/auth/logout', [OdkAuthController::class, 'logout']);
     Route::post('/auth/stop-impersonation', [OdkAuthController::class, 'stopImpersonation']);
+    Route::get('/my/assignments', [OnlineAssessmentController::class, 'index']);
+    Route::get('/my/assignments/{assignment:uuid}', [OnlineAssessmentController::class, 'show']);
+    Route::post('/my/assignments/{assignment:uuid}/submissions', [OnlineAssessmentController::class, 'store']);
+    Route::post('/my/submissions/{submission:uuid}/attachments', [OnlineAssessmentController::class, 'uploadAttachment']);
 });
 Route::get('/bootstrap', BootstrapController::class);
 Route::get('/dashboard', DashboardController::class);

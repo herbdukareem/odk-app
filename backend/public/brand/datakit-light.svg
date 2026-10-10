@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="268" height="64" viewBox="0 0 268 64" role="img" aria-labelledby="title desc">
+  <title id="title">DataKit Quality Assurance</title>
+  <desc id="desc">DataKit logo with a light wordmark for dark backgrounds.</desc>
+  <rect width="64" height="64" rx="16" fill="#dff0e5"/>
+  <rect x="15" y="14" width="34" height="8" rx="4" fill="#0b4a2f"/>
+  <rect x="15" y="28" width="41" height="8" rx="4" fill="#0b4a2f"/>
+  <rect x="15" y="42" width="34" height="8" rx="4" fill="#0b4a2f"/>
+  <text x="78" y="39" fill="#fff" font-family="Arial, sans-serif" font-size="31" font-weight="500">Data</text>
+  <text x="146" y="39" fill="#8be0b5" font-family="Arial, sans-serif" font-size="31" font-weight="800">Kit</text>
+  <text x="79" y="55" fill="#a9cbb9" font-family="Arial, sans-serif" font-size="10" letter-spacing=".2">Quality Assurance</text>
+</svg>

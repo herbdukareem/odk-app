@@ -8,6 +8,7 @@ use App\Models\AssessmentAssignment;
 use App\Models\AssessmentExercise;
 use App\Models\AssessmentSubmission;
 use App\Models\AssessmentSubmissionAttachment;
+use App\Models\OdkUser;
 use App\Models\ReferenceFacility;
 use App\Services\Forms\FormRuleTester;
 use Illuminate\Support\Facades\DB;
@@ -23,13 +24,15 @@ class AssessmentSubmissionService
     {
     }
 
-    public function submit(array $payload): AssessmentSubmission
+    public function submit(array $payload, bool $requireValid = false): AssessmentSubmission
     {
-        return DB::transaction(function () use ($payload): AssessmentSubmission {
+        return DB::transaction(function () use ($payload, $requireValid): AssessmentSubmission {
             $form = $this->resolveForm($payload);
             $version = $this->resolveVersion($form, $payload);
             $answers = $payload['answers'] ?? [];
-            $validation = $this->ruleTester->test($form, $answers);
+            $validation = $version
+                ? $this->ruleTester->testVersion($version, $answers)
+                : $this->ruleTester->test($form, $answers);
             $facility = $this->resolveFacility($payload);
             $assignment = $this->resolveAssignment($payload);
             if ($assignment?->facility) {
@@ -38,6 +41,16 @@ class AssessmentSubmissionService
             $exercise = $this->resolveExercise($payload, $assignment);
             $gps = $payload['gps'] ?? $answers['gps_coordinates'] ?? [];
             $status = $payload['status'] ?? AssessmentSubmission::STATUS_SUBMITTED;
+
+            if ($requireValid && $status !== AssessmentSubmission::STATUS_DRAFT && !$validation['valid']) {
+                throw ValidationException::withMessages(
+                    collect($validation['errors'])
+                        ->mapWithKeys(fn (array $error): array => [
+                            'answers.'.($error['field'] ?? 'form') => $error['message'] ?? 'This answer is invalid.',
+                        ])
+                        ->all()
+                );
+            }
 
             $submission = !empty($payload['client_submission_id'])
                 ? AssessmentSubmission::firstOrNew(['client_submission_id' => $payload['client_submission_id']])
@@ -96,18 +109,20 @@ class AssessmentSubmissionService
                 ]);
             }
 
-            $submission->attachments()->delete();
-            foreach ($payload['attachments'] ?? [] as $attachment) {
-                $submission->attachments()->create([
-                    'field_key' => $attachment['field_key'] ?? null,
-                    'type' => $attachment['type'] ?? 'document',
-                    'path' => $attachment['path'] ?? null,
-                    'original_name' => $attachment['original_name'] ?? $attachment['name'] ?? null,
-                    'mime_type' => $attachment['mime_type'] ?? null,
-                    'size_bytes' => $attachment['size_bytes'] ?? null,
-                    'metadata' => $attachment['metadata'] ?? null,
-                    'captured_at' => $attachment['captured_at'] ?? null,
-                ]);
+            if (array_key_exists('attachments', $payload)) {
+                $submission->attachments()->delete();
+                foreach ($payload['attachments'] ?? [] as $attachment) {
+                    $submission->attachments()->create([
+                        'field_key' => $attachment['field_key'] ?? null,
+                        'type' => $attachment['type'] ?? 'document',
+                        'path' => $attachment['path'] ?? null,
+                        'original_name' => $attachment['original_name'] ?? $attachment['name'] ?? null,
+                        'mime_type' => $attachment['mime_type'] ?? null,
+                        'size_bytes' => $attachment['size_bytes'] ?? null,
+                        'metadata' => $attachment['metadata'] ?? null,
+                        'captured_at' => $attachment['captured_at'] ?? null,
+                    ]);
+                }
             }
 
             $submission->syncEvents()->create([
@@ -124,6 +139,40 @@ class AssessmentSubmissionService
 
             return $submission->fresh(['form', 'formVersion', 'answers', 'attachments', 'reviews', 'syncEvents']);
         });
+    }
+
+    public function submitOnline(OdkUser $user, array $payload): AssessmentSubmission
+    {
+        $assignment = $this->resolveAssignment($payload);
+
+        abort_unless($assignment && $this->userCanAccessAssignment($user, $assignment), 403, 'This assessment is not assigned to your account or team.');
+
+        $payload['source'] = 'online';
+        $payload['assessor'] = [
+            'id' => $user->staff_code ?: (string) $user->id,
+            'local_id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+        ];
+        $payload['assessor_id'] = $user->staff_code ?: (string) $user->id;
+        $payload['assessor_name'] = $user->name;
+
+        return $this->submit($payload, true);
+    }
+
+    public function userCanAccessAssignment(OdkUser $user, AssessmentAssignment $assignment): bool
+    {
+        if ((int) $assignment->odk_user_id === (int) $user->id) {
+            return true;
+        }
+
+        $teamIds = $user->teams()
+            ->where('odk_teams.status', 'active')
+            ->pluck('odk_teams.id')
+            ->merge($user->leadingTeams()->where('status', 'active')->pluck('id'))
+            ->unique();
+
+        return $assignment->odk_team_id !== null && $teamIds->contains((int) $assignment->odk_team_id);
     }
 
     public function review(AssessmentSubmission $submission, array $payload): AssessmentSubmission

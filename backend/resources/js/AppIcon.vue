@@ -85,6 +85,16 @@ const icons: Record<string, IconShape> = {
   upload: {
     paths: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M17 8l-5-5-5 5', 'M12 3v12'],
   },
+  refresh: {
+    paths: ['M20 11a8 8 0 0 0-14.9-3', 'M5 4v4h4', 'M4 13a8 8 0 0 0 14.9 3', 'M19 20v-4h-4'],
+  },
+  check: {
+    paths: ['m5 12 4 4L19 6'],
+  },
+  location: {
+    paths: ['M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z'],
+    circles: [{ cx: 12, cy: 10, r: 2.5 }],
+  },
   building: {
     paths: ['M3 21h18', 'M4 21V5a2 2 0 0 1 2-2h8v18', 'M14 9h4a2 2 0 0 1 2 2v10', 'M8 7h2', 'M8 11h2', 'M8 15h2'],
   },

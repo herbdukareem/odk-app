@@ -42,6 +42,9 @@ export const getOdkToken = (): string | null => localStorage.getItem(TOKEN_KEY);
 
 export const authenticatedRequest = async (url: string, init: RequestInit = {}): Promise<Response> => {
   const headers = jsonHeaders(init.headers);
+  if (init.body instanceof FormData) {
+    headers.delete('Content-Type');
+  }
   const token = getOdkToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
 

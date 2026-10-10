@@ -3,6 +3,7 @@
 namespace App\Services\Forms;
 
 use App\Models\AssessmentForm;
+use App\Models\AssessmentFormVersion;
 
 class FormRuleTester
 {
@@ -12,7 +13,19 @@ class FormRuleTester
 
     public function test(AssessmentForm $form, array $answers): array
     {
-        $snapshot = $this->snapshots->build($form);
+        return $this->testSnapshot($this->snapshots->build($form), $answers);
+    }
+
+    public function testVersion(AssessmentFormVersion $version, array $answers): array
+    {
+        return $this->testSnapshot([
+            'fields' => $version->fields ?? [],
+            'scoring_rules' => $version->scoring_rules ?? [],
+        ], $answers);
+    }
+
+    private function testSnapshot(array $snapshot, array $answers): array
+    {
         $visibleFields = collect($snapshot['fields'])
             ->filter(fn (array $field) => $this->isVisible($field, $answers));
 

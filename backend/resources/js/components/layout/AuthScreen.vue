@@ -13,7 +13,7 @@
       <form class="qds-card auth-card" @submit.prevent="submit">
         <p class="qds-kicker">W01</p>
         <h2>Welcome back</h2>
-        <p class="qds-muted">Sign in to access NiCare Quality Assurance.</p>
+        <p class="qds-muted">Sign in to access DataKit Quality Assurance.</p>
         <QdsField v-model="email" label="Email address" type="email" />
         <QdsField v-model="password" label="Password" type="password" />
         <p v-if="errorMessage" class="auth-error">{{ errorMessage }}</p>
