@@ -460,16 +460,10 @@ const fallbackForm: FormSchema = {
     { key: 'facility_photos', label: 'Facility photos', type: 'photo_collection', section: 'evidence' },
     { key: 'supporting_documents', label: 'Supporting documents', type: 'file_collection', section: 'evidence' },
     { key: 'facility_representative_name', label: 'Facility representative name', type: 'text', section: 'signatures', required: true },
-    { key: 'facility_representative_signature', label: 'Facility representative signature', type: 'signature', section: 'signatures', required: true },
-    { key: 'assessor_signature', label: 'Assessor signature', type: 'signature', section: 'signatures', required: true },
     { key: 'accuracy_attestation', label: 'I confirm that the information collected is accurate', type: 'checkbox', section: 'signatures', required: true },
   ],
   required_evidence_rules: [{ field: 'gps_coordinates', required_on_submit: true, label: 'GPS location' }],
-  signature_rules: [
-    { field: 'facility_representative_signature', required_on_submit: true },
-    { field: 'assessor_signature', required_on_submit: true },
-    { field: 'accuracy_attestation', required_on_submit: true },
-  ],
+  signature_rules: [],
 };
 
 export default function App() {
@@ -1107,40 +1101,20 @@ export default function App() {
     data.append('original_name', attachment.name);
     data.append('captured_at', attachment.capturedAt);
 
-    const response = await fetch(`${API_BASE_URL}/mobile/submissions/${submissionUuid}/attachments`, {
+    const url = `${API_BASE_URL}/mobile/submissions/${submissionUuid}/attachments`;
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { Accept: 'application/json' },
       body: data,
     });
 
     if (!response.ok) {
-      throw new Error(`Evidence upload failed (${response.status}).`);
+      throw new Error(await responseError(response, url));
     }
   }
 
   async function createSignatureAttachments(draft: DraftAssessment): Promise<EvidenceAttachment[]> {
-    const signatureFields = (draft.formSchema?.fields ?? []).filter((field) => field.type === 'signature');
-    const attachments: EvidenceAttachment[] = [];
-
-    for (const field of signatureFields) {
-      const points = parseSignature(String(draft.answers[field.key] ?? ''));
-      if (points.length === 0) continue;
-
-      const file = new File(Paths.cache, `signature-${draft.id}-${field.key}.svg`);
-      file.create({ overwrite: true });
-      file.write(signatureSvg(points));
-      attachments.push({
-        id: `signature-${draft.id}-${field.key}`,
-        fieldKey: field.key,
-        type: 'signature',
-        uri: file.uri,
-        name: `${field.key}.svg`,
-        mimeType: 'image/svg+xml',
-        capturedAt: new Date().toISOString(),
-      });
-    }
-
-    return attachments;
+    return [];
   }
 
   if (!ready) {
@@ -1870,14 +1844,7 @@ function FieldRenderer({
     );
   }
 
-  if (field.type === 'signature') {
-    return (
-      <View style={styles.fieldCard}>
-        <Text style={styles.fieldLabel}>{field.label}{requiredMarker}</Text>
-        <SignatureBox value={typeof value === 'string' ? value : ''} onChange={(next) => onAnswer(field.key, next)} />
-      </View>
-    );
-  }
+  if (field.type === 'signature') return null;
 
   return (
     <View style={styles.fieldCard}>
@@ -2354,13 +2321,16 @@ function validateDraft(form: FormSchema, draft: DraftAssessment): ValidationResu
   const errors: ValidationError[] = [];
 
   form.fields.forEach((field) => {
+    if (field.type === 'signature') {
+      return;
+    }
+
     if (!isFieldVisible(field, draft.answers)) {
       return;
     }
 
     const requiredByEvidence = form.required_evidence_rules?.some((rule) => rule.field === field.key && rule.required_on_submit) ?? false;
-    const requiredBySignature = form.signature_rules?.some((rule) => rule.field === field.key && rule.required_on_submit) ?? false;
-    const required = field.required || requiredByEvidence || requiredBySignature || isRequiredByLogic(field, draft.answers);
+    const required = field.required || requiredByEvidence || isRequiredByLogic(field, draft.answers);
     const sectionIndex = sectionIndexForField(form, field);
     const value = draft.answers[field.key];
 
@@ -2385,8 +2355,6 @@ function validateDraft(form: FormSchema, draft: DraftAssessment): ValidationResu
     if (required && isBlankAnswer(value)) {
       if (field.type === 'gps') {
         pushValidationError(errors, field, sectionIndex, 'GPS location not captured');
-      } else if (field.type === 'signature') {
-        pushValidationError(errors, field, sectionIndex, 'Signature not captured');
       } else {
         pushValidationError(errors, field, sectionIndex, 'Required answer missing');
       }
@@ -2404,9 +2372,6 @@ function validateDraft(form: FormSchema, draft: DraftAssessment): ValidationResu
       pushValidationError(errors, field, sectionIndex, 'GPS location not captured');
     }
 
-    if (field.type === 'signature' && required && !isBlankAnswer(value) && !hasSignatureValue(value)) {
-      pushValidationError(errors, field, sectionIndex, 'Signature not captured');
-    }
   });
 
   const completedSections = form.sections.filter((section) => {
@@ -2744,6 +2709,7 @@ function mapPublishedForm(record: PublishedFormResponse['data'][number]): FormSc
   const downloadedAt = new Date().toISOString();
   const requiresScoring = Boolean(record.requires_scoring ?? version.requires_scoring ?? version.metadata_schema?.requires_scoring);
   const scoringMaxScore = toNullableNumber(record.scoring_max_score ?? version.scoring_max_score ?? version.metadata_schema?.scoring_max_score);
+  const fields = normalizeFields(version.fields ?? []);
 
   return {
     id: record.id,
@@ -2755,13 +2721,13 @@ function mapPublishedForm(record: PublishedFormResponse['data'][number]): FormSc
     metadata_schema: version.metadata_schema ?? null,
     requires_scoring: requiresScoring,
     scoring_max_score: requiresScoring ? scoringMaxScore : null,
-    sections: normalizeSections(version.sections ?? []),
-    fields: normalizeFields(version.fields ?? []),
+    sections: normalizeSections(version.sections ?? []).filter((section) => fields.some((field) => field.section === section.key)),
+    fields,
     validation_rules: version.validation_rules,
     visibility_rules: version.visibility_rules,
     scoring_rules: version.scoring_rules,
     required_evidence_rules: version.required_evidence_rules,
-    signature_rules: version.signature_rules,
+    signature_rules: [],
     downloaded_at: downloadedAt,
   };
 }
@@ -2774,7 +2740,7 @@ function normalizeSections(sections: FormSection[]): FormSection[] {
 
 function normalizeFields(fields: FormField[]): FormField[] {
   return [...fields]
-    .filter((field) => field.key && field.label && field.type)
+    .filter((field) => field.key && field.label && field.type && field.type !== 'signature')
     .map((field) => ({
       ...field,
       section: field.section || 'assessment_metadata',
@@ -2925,7 +2891,6 @@ function schemaRuleSummary(form: FormSchema): string {
     `${countArray(form.visibility_rules)} visibility`,
     `${countArray(form.scoring_rules)} scoring`,
     `${countArray(form.required_evidence_rules)} evidence`,
-    `${countArray(form.signature_rules)} signature`,
   ];
 
   return `${counts.join(', ')} rule(s) cached.`;

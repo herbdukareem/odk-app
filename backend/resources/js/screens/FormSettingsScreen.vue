@@ -40,13 +40,7 @@
         <section class="settings-side">
           <div class="settings-block">
             <h3><AppIcon name="signature" /><span>Signatures</span></h3>
-            <div v-for="rule in signatureRules" :key="rule.label" class="toggle-row">
-              <div>
-                <strong>{{ rule.label }}</strong>
-                <span>{{ rule.required ? 'Required' : 'Optional' }}</span>
-              </div>
-              <QdsSwitch v-model="rule.enabled" />
-            </div>
+            <p class="settings-disabled-note">Signature capture is currently disabled for web and mobile assessments.</p>
           </div>
 
           <div class="settings-block">
@@ -103,16 +97,17 @@
             </div>
             <QdsButton icon="plus" block @click="saveSection">Create section</QdsButton>
           </div>
-          <button
+          <div
             v-for="section in builderSections"
             :key="section.key"
             :class="['section-pill', selectedSectionKey === section.key && 'active']"
-            type="button"
-            @click="selectedSectionKey = section.key"
           >
-            <strong>{{ section.label }}</strong>
-            <span>{{ sectionFieldCount(section.key) }} fields</span>
-          </button>
+            <button class="section-pill__select" type="button" @click="selectedSectionKey = section.key">
+              <strong>{{ section.label }}</strong>
+              <span>{{ sectionFieldCount(section.key) }} fields</span>
+            </button>
+            <QdsButton v-if="section.id" variant="tiny" @click="removeSection(section)">Remove</QdsButton>
+          </div>
         </aside>
 
         <section class="builder-panel">
@@ -136,6 +131,7 @@
               </div>
               <QdsBadge v-if="field.options?.length" tone="green">{{ field.options.length }} options</QdsBadge>
               <QdsButton variant="tiny" @click="editField(field)">Edit</QdsButton>
+              <QdsButton v-if="field.id" variant="tiny" @click="removeField(field)">Remove</QdsButton>
             </div>
           </div>
         </section>
@@ -374,6 +370,8 @@ import QdsSwitch from '../components/qds/QdsSwitch.vue';
 import QdsTabs from '../components/qds/QdsTabs.vue';
 import {
   createFormField,
+  deleteFormField,
+  deleteFormSection,
   type AssessmentForm,
   type BuilderField,
   type BuilderOption,
@@ -418,7 +416,6 @@ const fieldTypes = [
   { label: 'GPS location', value: 'gps' },
   { label: 'Photos', value: 'photo_collection' },
   { label: 'Files/documents', value: 'file_collection' },
-  { label: 'Signature', value: 'signature' },
   { label: 'Checkbox', value: 'checkbox' },
   { label: 'Read only', value: 'readonly' },
 ];
@@ -452,12 +449,6 @@ const notice = ref('');
 const ruleTestInput = ref('{"doctors_available":"yes","total_doctors":2,"gps_coordinates":{"latitude":9.61,"longitude":6.55}}');
 const ruleTestOutput = ref('Run a rule test to see validation output.');
 const customValidationRule = ref('');
-
-const signatureRules = ref([
-  { label: 'Facility representative signature', required: true, enabled: true },
-  { label: 'Assessor signature', required: true, enabled: true },
-  { label: 'Additional signatory', required: false, enabled: false },
-]);
 
 const emptyFieldDraft = () => ({
   id: undefined as number | undefined,
@@ -528,13 +519,15 @@ const builderSections = computed<BuilderSection[]>(() => {
 
 const builderFields = computed<BuilderField[]>(() => {
   if (Array.isArray(formModel.fields) && formModel.fields.length > 0) {
-    return [...formModel.fields].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    return [...formModel.fields]
+      .filter((field) => field.type !== 'signature')
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   }
 
   const fields = formModel.current_version?.fields;
   if (!Array.isArray(fields)) return [];
 
-  return fields.map((field, index) => {
+  return fields.filter((field) => (field as Record<string, unknown>).type !== 'signature').map((field, index) => {
     const record = field as Record<string, unknown>;
     return {
       key: String(record.key ?? `field-${index}`),
@@ -712,17 +705,6 @@ const applyForm = (form: AssessmentForm) => {
     selectedSectionKey.value = builderSections.value[0].key;
   }
 
-  const rules = form.current_version?.signature_rules;
-  if (Array.isArray(rules) && rules.length > 0) {
-    signatureRules.value = rules.map((rule) => {
-      const record = rule as Record<string, unknown>;
-      const field = String(record.field ?? record.label ?? 'signature');
-      const label = field.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-      const required = Boolean(record.required_on_submit ?? record.required);
-
-      return { label, required, enabled: required };
-    });
-  }
 };
 
 const loadForm = async () => {
@@ -853,6 +835,22 @@ const saveField = async () => {
   await loadForm();
   notice.value = 'Field saved to builder source.';
   showFieldEditor.value = false;
+};
+
+const removeField = async (field: BuilderField) => {
+  if (!field.id || !window.confirm(`Remove "${field.label}" from this form?`)) return;
+
+  await deleteFormField(formModel.slug, field.id);
+  await loadForm();
+  notice.value = 'Field removed from the builder.';
+};
+
+const removeSection = async (section: BuilderSection) => {
+  if (!section.id || !window.confirm(`Remove "${section.label}" and all its fields?`)) return;
+
+  await deleteFormSection(formModel.slug, section.id);
+  await loadForm();
+  notice.value = 'Section and its fields removed from the builder.';
 };
 
 const closeFieldEditor = () => {

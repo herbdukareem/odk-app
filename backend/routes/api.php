@@ -43,6 +43,7 @@ Route::get('/forms/{form:slug}', [AssessmentFormController::class, 'show']);
 Route::patch('/forms/{form:slug}', [AssessmentFormController::class, 'update']);
 Route::post('/forms/{form:slug}/clone', [AssessmentFormController::class, 'clone']);
 Route::post('/forms/{form:slug}/sections', [AssessmentFormController::class, 'storeSection']);
+Route::delete('/forms/{form:slug}/sections/{section}', [AssessmentFormController::class, 'destroySection']);
 Route::post('/forms/{form:slug}/fields', [AssessmentFormController::class, 'storeField']);
 Route::patch('/forms/{form:slug}/fields/{field}', [AssessmentFormController::class, 'updateField']);
 Route::delete('/forms/{form:slug}/fields/{field}', [AssessmentFormController::class, 'destroyField']);

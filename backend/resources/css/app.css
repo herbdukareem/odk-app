@@ -1194,7 +1194,9 @@ h3 {
 }
 
 .section-pill {
-  display: grid;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   gap: 3px;
   width: 100%;
   min-height: 48px;
@@ -1203,6 +1205,19 @@ h3 {
   padding: 9px 10px;
   color: var(--qds-slate-700);
   background: var(--qds-white);
+  cursor: pointer;
+  text-align: left;
+}
+
+.section-pill__select {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
   cursor: pointer;
   text-align: left;
 }
@@ -1698,6 +1713,13 @@ h3 {
   width: 16px;
   height: 16px;
   color: var(--qds-green-700);
+}
+
+.settings-disabled-note {
+  margin: 0;
+  color: var(--qds-slate-500);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .toggle-row {

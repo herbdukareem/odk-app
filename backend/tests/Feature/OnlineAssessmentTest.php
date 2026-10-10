@@ -67,6 +67,36 @@ class OnlineAssessmentTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_mobile_submission_falls_back_when_cached_version_id_is_from_another_environment(): void
+    {
+        $user = $this->createUser('mobile-assessor@example.com');
+        [$assignment, $exercise, $form, $version, $facility] = $this->createAssignment($user);
+
+        $response = $this->postJson('/api/mobile/submissions', [
+            'client_submission_id' => 'mobile-stale-version',
+            'form_slug' => $form->slug,
+            'form_version_id' => 999999,
+            'form_version' => $version->version,
+            'assessment_exercise_id' => $exercise->id,
+            'assessment_assignment_id' => $assignment->id,
+            'facility_id' => $facility->source_id,
+            'facility_name' => $facility->name,
+            'assessment_date' => now()->toDateString(),
+            'source' => 'mobile',
+            'status' => 'submitted',
+            'answers' => ['assessment_date' => now()->toDateString()],
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('data.uuid', fn ($uuid) => is_string($uuid) && Str::isUuid($uuid));
+
+        $this->assertDatabaseHas('assessment_submissions', [
+            'client_submission_id' => 'mobile-stale-version',
+            'assessment_form_version_id' => $version->id,
+        ]);
+    }
+
     private function createUser(string $email): OdkUser
     {
         return OdkUser::create([

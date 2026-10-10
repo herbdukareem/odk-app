@@ -227,6 +227,14 @@ export const updateFormField = async (slug: string, fieldId: number, payload: Pa
   return response.data;
 };
 
+export const deleteFormField = async (slug: string, fieldId: number): Promise<void> => {
+  await writeJson<ApiEnvelope<{ success: boolean }>>(`/api/forms/${slug}/fields/${fieldId}`, 'DELETE');
+};
+
+export const deleteFormSection = async (slug: string, sectionId: number): Promise<void> => {
+  await writeJson<ApiEnvelope<{ success: boolean }>>(`/api/forms/${slug}/sections/${sectionId}`, 'DELETE');
+};
+
 export const publishAssessmentForm = async (slug: string): Promise<AssessmentForm> => {
   const response = await writeJson<ApiEnvelope<AssessmentForm>>(`/api/forms/${slug}/publish`, 'POST');
   return response.data;

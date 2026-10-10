@@ -18,6 +18,7 @@ class FormBuilderSnapshotService
         ]);
 
         $fields = $form->fields
+            ->reject(fn ($field) => $field->type === 'signature')
             ->sortBy(fn ($field) => [$field->section?->sort_order ?? 0, $field->sort_order, $field->id])
             ->map(fn ($field) => $this->fieldPayload($field))
             ->values()
@@ -50,7 +51,7 @@ class FormBuilderSnapshotService
             'visibility_rules' => $this->rulesOfType($form, AssessmentFormRule::TYPE_VISIBILITY),
             'scoring_rules' => $this->scoringRules($form, $fields),
             'required_evidence_rules' => $this->rulesOfType($form, AssessmentFormRule::TYPE_EVIDENCE),
-            'signature_rules' => $this->rulesOfType($form, AssessmentFormRule::TYPE_SIGNATURE),
+            'signature_rules' => [],
             'review_flags' => $this->rulesOfType($form, AssessmentFormRule::TYPE_REVIEW_FLAG),
         ];
     }

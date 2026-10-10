@@ -27,6 +27,7 @@ class FormRuleTester
     private function testSnapshot(array $snapshot, array $answers): array
     {
         $visibleFields = collect($snapshot['fields'])
+            ->reject(fn (array $field) => ($field['type'] ?? null) === 'signature')
             ->filter(fn (array $field) => $this->isVisible($field, $answers));
 
         $errors = [];

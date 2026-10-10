@@ -185,12 +185,12 @@ class MobileAssignmentController
                 'requires_scoring' => $version->requires_scoring,
                 'scoring_max_score' => $version->scoring_max_score,
                 'sections' => $version->sections,
-                'fields' => $version->fields,
+                'fields' => collect($version->fields ?? [])->reject(fn (array $field) => ($field['type'] ?? null) === 'signature')->values()->all(),
                 'validation_rules' => $version->validation_rules,
                 'visibility_rules' => $version->visibility_rules,
                 'scoring_rules' => $version->scoring_rules,
                 'required_evidence_rules' => $version->required_evidence_rules,
-                'signature_rules' => $version->signature_rules,
+                'signature_rules' => [],
             ],
         ];
     }

@@ -152,37 +152,38 @@
             <small v-if="validationIssues.length > 8">Showing first 8 of {{ validationIssues.length }} issues.</small>
           </div>
 
-          <div v-if="reviewAnswerRows.length" class="review-block">
+          <div v-if="reviewAnswerRows.length" class="review-block warning">
             <div class="review-block__heading">
               <h3>Answers requiring review</h3>
               <QdsBadge tone="amber">{{ reviewAnswerRows.length }}</QdsBadge>
             </div>
-            <div v-for="answer in reviewAnswerRows" :key="answer.key" class="answer-row flagged">
-              <span>{{ answer.label }}</span>
-              <strong>{{ answer.value }}</strong>
-            </div>
+            <p>Flagged answers are marked inside their sections below.</p>
           </div>
 
           <div v-if="nonSignatureAnswerRows.length" class="review-block">
             <div class="review-block__heading">
-              <h3>Submitted answers</h3>
+              <h3>Submitted answers by section</h3>
               <QdsBadge tone="blue">{{ nonSignatureAnswerRows.length }}</QdsBadge>
             </div>
-            <div v-for="answer in nonSignatureAnswerRows" :key="answer.key" class="answer-row">
-              <span>{{ answer.label }}</span>
-              <strong>{{ answer.value }}<small v-if="answer.score !== null">Score {{ answer.score }}</small></strong>
-            </div>
-          </div>
-
-          <div v-if="signatureRows.length" class="review-block">
-            <h3>Signatures</h3>
-            <div v-for="signature in signatureRows" :key="signature.key" class="answer-row">
-              <span>{{ signature.label }}</span>
-              <div v-if="signatureAttachment(signature.key)" class="signature-preview">
-                <img :src="signatureAttachment(signature.key)?.download_url || ''" :alt="`${signature.label} image`">
-                <a :href="signatureAttachment(signature.key)?.download_url || '#'" target="_blank" rel="noreferrer">Open image</a>
+            <div v-for="section in answerSections" :key="section.key" class="answer-section">
+              <button
+                type="button"
+                class="answer-section__header"
+                :aria-expanded="isAnswerSectionExpanded(section.key)"
+                @click="toggleAnswerSection(section.key)"
+              >
+                <span>
+                  <strong>{{ section.label }}</strong>
+                  <small>{{ section.answers.length }} answers</small>
+                </span>
+                <strong>{{ isAnswerSectionExpanded(section.key) ? '-' : '+' }}</strong>
+              </button>
+              <div v-if="isAnswerSectionExpanded(section.key)" class="answer-section__rows">
+                <div v-for="answer in section.answers" :key="answer.key" :class="['answer-row', answer.requiresReview && 'flagged']">
+                  <span>{{ answer.label }}</span>
+                  <strong>{{ answer.value }}<small v-if="answer.score !== null">Score {{ answer.score }}</small></strong>
+                </div>
               </div>
-              <strong v-else>{{ signature.value }}</strong>
             </div>
           </div>
 
@@ -216,7 +217,6 @@
             <div class="decision-stack">
               <QdsCheckbox v-model="checks.completeness" label="Checklist is complete" />
               <QdsCheckbox v-model="checks.evidence" label="Required evidence is attached" />
-              <QdsCheckbox v-model="checks.signatures" label="Signatures are valid" />
             </div>
 
             <QdsField v-model="reviewNote" label="Review note" textarea :rows="4" />
@@ -268,10 +268,10 @@ const filters = reactive({
 const checks = reactive({
   completeness: true,
   evidence: false,
-  signatures: true,
 });
 
 const selectedSubmission = computed(() => queue.value.find((submission) => submission.uuid === selectedUuid.value));
+const expandedAnswerSections = ref<Record<string, boolean>>({});
 const selectedExerciseName = computed(() => exercises.value.find((exercise) => String(exercise.id) === filters.exercise_id)?.name ?? '');
 const exerciseFilterOptions = computed(() => [
   { label: 'All exercises', value: '' },
@@ -304,18 +304,34 @@ const answerRows = computed(() => {
   return submission.answers.map((answer) => {
     const key = String(answer.field_key ?? 'answer');
     const field = submission.form_version?.fields?.find((candidate) => candidate.key === key);
+    const sectionKey = String(answer.section_key ?? field?.section ?? 'general');
+    const section = submission.form_version?.sections?.find((candidate) => candidate.key === sectionKey);
     return {
       key,
       label: field?.label || titleCase(key),
       value: formatAnswerValue(extractAnswerValue(answer.value)),
       requiresReview: Boolean(answer.requires_review),
       score: answer.score ?? null,
+      sectionKey,
+      sectionLabel: section?.label || titleCase(sectionKey),
     };
   });
 });
 const reviewAnswerRows = computed(() => answerRows.value.filter((answer) => answer.requiresReview));
 const nonSignatureAnswerRows = computed(() => answerRows.value.filter((answer) => !answer.key.includes('signature') && !answer.key.includes('attestation')));
-const signatureRows = computed(() => answerRows.value.filter((answer) => answer.key.includes('signature') || answer.key.includes('attestation')));
+const answerSections = computed(() => {
+  const groups = new Map<string, { key: string; label: string; answers: typeof nonSignatureAnswerRows.value }>();
+  nonSignatureAnswerRows.value.forEach((answer) => {
+    const section = groups.get(answer.sectionKey) ?? { key: answer.sectionKey, label: answer.sectionLabel, answers: [] };
+    section.answers.push(answer);
+    groups.set(answer.sectionKey, section);
+  });
+  return [...groups.values()];
+});
+const isAnswerSectionExpanded = (key: string) => expandedAnswerSections.value[key] !== false;
+const toggleAnswerSection = (key: string) => {
+  expandedAnswerSections.value[key] = !isAnswerSectionExpanded(key);
+};
 const scorePercent = computed(() => {
   const submission = selectedSubmission.value;
   if (!submission) return 0;
@@ -325,9 +341,6 @@ const scorePercent = computed(() => {
   return Math.max(0, Math.min(100, (submission.score_total / Number(max)) * 100));
 });
 const scorePercentLabel = computed(() => `${scorePercent.value.toFixed(0)}% of maximum score`);
-const signatureAttachment = (fieldKey: string) => selectedSubmission.value?.attachments?.find((attachment) => (
-  attachment.field_key === fieldKey || attachment.type === 'signature'
-));
 const gpsLabel = computed(() => {
   const submission = selectedSubmission.value;
   if (!submission?.gps_latitude || !submission?.gps_longitude) return '';
@@ -381,7 +394,6 @@ const submitReview = async (action: 'start_review' | 'return' | 'approve') => {
     reviewNote.value,
     `Completeness: ${checks.completeness ? 'yes' : 'no'}`,
     `Evidence: ${checks.evidence ? 'yes' : 'no'}`,
-    `Signatures: ${checks.signatures ? 'yes' : 'no'}`,
   ].filter(Boolean).join('\n');
 
   const updated = await reviewSubmission(selectedUuid.value, action, note);
@@ -768,6 +780,39 @@ onMounted(async () => {
 
 .answer-row.flagged {
   color: var(--qds-amber-700);
+}
+
+.answer-section {
+  border-top: 1px solid var(--qds-slate-200);
+}
+
+.answer-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+  border: 0;
+  padding: 12px 0;
+  color: var(--qds-slate-800);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.answer-section__header span {
+  display: grid;
+  gap: 3px;
+}
+
+.answer-section__header small {
+  color: var(--qds-slate-500);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.answer-section__rows {
+  padding-bottom: 4px;
 }
 
 .signature-preview {

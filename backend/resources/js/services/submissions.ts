@@ -47,6 +47,7 @@ export type AssessmentSubmission = {
     requires_scoring?: boolean;
     scoring_max_score?: number | string | null;
     fields?: Array<{ key: string; label?: string; type?: string; section?: string }>;
+    sections?: Array<{ key: string; label?: string }>;
   } | null;
   exercise?: {
     id: number;

@@ -168,11 +168,6 @@
                 <small>{{ selectedFiles[field.key]?.map((file) => file.name).join(', ') || 'No files selected' }}</small>
               </div>
 
-              <div v-else-if="field.type === 'signature'" class="online-file-field online-signature-field">
-                <input :id="`online-${field.key}`" type="file" accept="image/*,.svg" :disabled="!selectedAssignment.can_submit" @change="selectSignature(field.key, $event)">
-                <small>{{ signatureLabel(field.key) }}</small>
-              </div>
-
               <textarea
                 v-else-if="field.type === 'textarea'"
                 :id="`online-${field.key}`"
@@ -258,10 +253,10 @@ const saving = ref(false);
 const startedAt = ref(new Date().toISOString());
 
 const formVersion = computed(() => selectedAssignment.value?.form?.version_data);
-const formSections = computed<OnlineSection[]>(() => formVersion.value?.sections || []);
+const formSections = computed<OnlineSection[]>(() => (formVersion.value?.sections || []).filter((section) => sectionFields(section.key).length > 0));
 
 const sectionFields = (sectionKey: string): OnlineField[] => (
-  (formVersion.value?.fields || []).filter((field) => field.section === sectionKey && !['lga_id', 'ward_id'].includes(field.key))
+  (formVersion.value?.fields || []).filter((field) => field.section === sectionKey && field.type !== 'signature' && !['lga_id', 'ward_id'].includes(field.key))
 );
 
 const loadAssignments = async () => {
@@ -390,34 +385,12 @@ const selectFiles = (key: string, event: Event) => {
   selectedFiles[key] = Array.from(input.files || []);
 };
 
-const selectSignature = (key: string, event: Event) => {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  selectedFiles[key] = file ? [file] : [];
-  answers[key] = file ? { source: 'web_upload', filename: file.name } : '';
-  delete fieldErrors[key];
-};
-
-const signatureLabel = (key: string): string => {
-  const selected = selectedFiles[key]?.[0];
-  if (selected) return selected.name;
-
-  const uploaded = selectedAssignment.value?.submission?.attachments?.find((attachment) => attachment.field_key === key);
-  if (uploaded) return uploaded.original_name || 'Signature uploaded';
-
-  const value = answers[key];
-  if (value && typeof value === 'object' && Array.isArray((value as Record<string, unknown>).points)) {
-    return 'Signature captured from mobile';
-  }
-
-  return 'Upload a signature image';
-};
-
 const validateBeforeSubmit = (): boolean => {
   Object.keys(fieldErrors).forEach((key) => delete fieldErrors[key]);
   let valid = true;
 
   for (const field of formVersion.value?.fields || []) {
+    if (field.type === 'signature') continue;
     if (!isVisible(field) || !isRequired(field)) continue;
     const value = field.type === 'yes_no_with_count' ? compoundAnswer(field.key).answer : answers[field.key];
     if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) {

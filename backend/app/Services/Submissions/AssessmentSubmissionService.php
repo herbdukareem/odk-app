@@ -267,11 +267,20 @@ class AssessmentSubmissionService
     private function resolveVersion(AssessmentForm $form, array $payload): ?AssessmentFormVersion
     {
         if (!empty($payload['form_version_id'])) {
-            return AssessmentFormVersion::where('assessment_form_id', $form->id)->findOrFail($payload['form_version_id']);
+            $version = AssessmentFormVersion::where('assessment_form_id', $form->id)
+                ->find($payload['form_version_id']);
+
+            if ($version) {
+                return $version;
+            }
         }
 
         if (!empty($payload['form_version'])) {
-            return $form->versions()->where('version', $payload['form_version'])->first();
+            $version = $form->versions()->where('version', $payload['form_version'])->first();
+
+            if ($version) {
+                return $version;
+            }
         }
 
         return $form->currentVersion;

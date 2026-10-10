@@ -241,7 +241,30 @@ class AssessmentFormController
     public function destroyField(AssessmentForm $form, AssessmentFormField $field): JsonResponse
     {
         abort_unless((int) $field->assessment_form_id === (int) $form->id, 404);
-        $field->delete();
+
+        DB::transaction(function () use ($form, $field): void {
+            $field->options()->delete();
+            $field->rules()->delete();
+            $field->delete();
+            $this->markDraft($form);
+        });
+
+        return response()->json(['success' => true]);
+    }
+
+    public function destroySection(AssessmentForm $form, AssessmentFormSection $section): JsonResponse
+    {
+        abort_unless((int) $section->assessment_form_id === (int) $form->id, 404);
+
+        DB::transaction(function () use ($form, $section): void {
+            $section->fields()->get()->each(function (AssessmentFormField $field): void {
+                $field->options()->delete();
+                $field->rules()->delete();
+                $field->delete();
+            });
+            $section->delete();
+            $this->markDraft($form);
+        });
 
         return response()->json(['success' => true]);
     }
@@ -338,7 +361,7 @@ class AssessmentFormController
 
     private function validateField(Request $request): array
     {
-        return $request->validate([
+        $data = $request->validate([
             'label' => ['required', 'string', 'max:255'],
             'key' => ['nullable', 'string', 'max:120'],
             'type' => ['required', 'string', 'max:60'],
@@ -359,6 +382,17 @@ class AssessmentFormController
             'options.*.score' => ['nullable', 'numeric'],
             'options.*.requires_review' => ['boolean'],
         ]);
+
+        abort_if(($data['type'] ?? null) === 'signature', 422, 'Signature fields are currently disabled.');
+
+        return $data;
+    }
+
+    private function markDraft(AssessmentForm $form): void
+    {
+        if ($form->status === AssessmentForm::STATUS_PUBLISHED) {
+            $form->forceFill(['status' => AssessmentForm::STATUS_DRAFT])->save();
+        }
     }
 
     private function uniqueSlug(string $title): string
