@@ -1,0 +1,149 @@
+name: Deploy ODK Backend To Hostinger
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - backend/**
+      - .github/workflows/deploy-hostinger.yml
+  workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: Run php artisan migrate --force after deploy
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odk-backend-hostinger-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: backend
+
+    env:
+      CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH }}
+      CPANEL_SSH_HOST: ${{ secrets.CPANEL_SSH_HOST }}
+      CPANEL_SSH_PORT: ${{ secrets.CPANEL_SSH_PORT }}
+      CPANEL_SSH_USERNAME: ${{ secrets.CPANEL_SSH_USERNAME }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate deployment secrets
+        run: |
+          test -n "$CPANEL_DEPLOY_PATH" || (echo "Missing CPANEL_DEPLOY_PATH secret" && exit 1)
+          test -n "$CPANEL_SSH_HOST" || (echo "Missing CPANEL_SSH_HOST secret" && exit 1)
+          test -n "$CPANEL_SSH_PORT" || (echo "Missing CPANEL_SSH_PORT secret" && exit 1)
+          test -n "$CPANEL_SSH_USERNAME" || (echo "Missing CPANEL_SSH_USERNAME secret" && exit 1)
+          test -n "$SSH_PRIVATE_KEY" || (echo "Missing SSH_PRIVATE_KEY secret" && exit 1)
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: mbstring, intl, pdo_mysql, bcmath, ctype, fileinfo, json, openssl, tokenizer, xml
+          coverage: none
+
+      - name: Install PHP dependencies
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ env.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "$CPANEL_SSH_PORT" -H "$CPANEL_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure remote deploy path exists
+        run: |
+          ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" \
+            "mkdir -p \"$CPANEL_DEPLOY_PATH\""
+
+      - name: Sync application files
+        run: |
+          tar \
+            --exclude=".git" \
+            --exclude=".github" \
+            --exclude="node_modules" \
+            --exclude="tests" \
+            --exclude=".env" \
+            --exclude=".phpunit.result.cache" \
+            --exclude="storage/logs" \
+            --exclude="storage/framework/cache" \
+            --exclude="storage/framework/sessions" \
+            --exclude="storage/framework/views" \
+            --exclude="public/storage" \
+            -czf "$RUNNER_TEMP/odk-backend-deploy.tar.gz" .
+          scp -P "$CPANEL_SSH_PORT" "$RUNNER_TEMP/odk-backend-deploy.tar.gz" \
+            "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/.odk-backend-deploy.tar.gz"
+          ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" \
+            "cd \"$CPANEL_DEPLOY_PATH\" && tar -xzf .odk-backend-deploy.tar.gz && rm -f .odk-backend-deploy.tar.gz"
+
+      - name: Run remote post-deploy tasks
+        env:
+          RUN_MIGRATIONS: ${{ github.event.inputs.run_migrations || 'false' }}
+        run: |
+          ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" \
+            "export CPANEL_DEPLOY_PATH='$CPANEL_DEPLOY_PATH' RUN_MIGRATIONS='$RUN_MIGRATIONS'; /bin/bash -se" <<'EOF'
+          set -euo pipefail
+          set -x
+          cd "$CPANEL_DEPLOY_PATH"
+
+          mkdir -p bootstrap/cache
+          mkdir -p storage/app/public
+          mkdir -p storage/framework/cache/data
+          mkdir -p storage/framework/sessions
+          mkdir -p storage/framework/views
+          mkdir -p storage/logs
+
+          if [ ! -f .env ]; then
+            echo ".env was not found in $CPANEL_DEPLOY_PATH. Create the production .env on the server, then redeploy."
+            exit 1
+          fi
+
+          if ! command -v php >/dev/null 2>&1; then
+            echo "php not found on remote host; cannot run Laravel post-deploy tasks"
+            exit 1
+          fi
+
+          php artisan optimize:clear || true
+          php artisan config:cache
+          php artisan route:cache || true
+          php artisan view:cache
+          php artisan storage:link || true
+
+          if [ "$RUN_MIGRATIONS" = "true" ]; then
+            php artisan migrate --force
+          fi
+          EOF

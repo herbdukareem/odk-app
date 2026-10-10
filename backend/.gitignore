@@ -9,3 +9,5 @@
 /storage/framework/views/*
 /storage/logs/*.log
 /.phpunit.result.cache
+/backend/composer.lock
+/backend/package-lock.json

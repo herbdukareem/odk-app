@@ -26,7 +26,7 @@
       ]
     },
     "extra": {
-      "apiBaseUrl": "http://192.168.0.102:8094/api"
+      "apiBaseUrl": "http://192.168.0.100:8094/api"
     },
     "plugins": [
       "expo-secure-store",
