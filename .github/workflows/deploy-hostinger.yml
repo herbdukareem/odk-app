@@ -103,8 +103,9 @@ jobs:
 
       - name: Run remote post-deploy tasks
         run: |
+          printf -v REMOTE_DEPLOY_PATH '%q' "$CPANEL_DEPLOY_PATH"
           ssh -p "$CPANEL_SSH_PORT" "$CPANEL_SSH_USERNAME@$CPANEL_SSH_HOST" \
-            "export CPANEL_DEPLOY_PATH='$CPANEL_DEPLOY_PATH'; /bin/bash -se" <<'EOF
+            "export CPANEL_DEPLOY_PATH=$REMOTE_DEPLOY_PATH; /bin/bash -se" <<'EOF'
           set -euo pipefail
           set -x
           cd "$CPANEL_DEPLOY_PATH"
