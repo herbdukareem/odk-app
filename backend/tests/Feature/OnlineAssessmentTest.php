@@ -9,6 +9,8 @@ use App\Models\AssessmentFormVersion;
 use App\Models\OdkUser;
 use App\Models\ReferenceFacility;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -94,6 +96,51 @@ class OnlineAssessmentTest extends TestCase
         $this->assertDatabaseHas('assessment_submissions', [
             'client_submission_id' => 'mobile-stale-version',
             'assessment_form_version_id' => $version->id,
+        ]);
+    }
+
+    public function test_mobile_evidence_is_stored_on_the_configured_s3_disk(): void
+    {
+        Storage::fake('s3');
+        config(['filesystems.default' => 's3']);
+
+        $user = $this->createUser('mobile-evidence@example.com');
+        [$assignment, $exercise, $form, $version, $facility] = $this->createAssignment($user);
+
+        $submission = $this->postJson('/api/mobile/submissions', [
+            'client_submission_id' => 'mobile-evidence',
+            'form_slug' => $form->slug,
+            'form_version_id' => $version->id,
+            'assessment_exercise_id' => $exercise->id,
+            'assessment_assignment_id' => $assignment->id,
+            'facility_id' => $facility->source_id,
+            'facility_name' => $facility->name,
+            'assessment_date' => now()->toDateString(),
+            'source' => 'mobile',
+            'status' => 'submitted',
+            'answers' => ['assessment_date' => now()->toDateString()],
+        ])->assertCreated();
+
+        $uuid = (string) $submission->json('data.uuid');
+
+        $this->post('/api/mobile/submissions/'.$uuid.'/attachments', [
+            'file' => UploadedFile::fake()->image('evidence.jpg'),
+            'field_key' => 'facility_photos',
+            'type' => 'photo',
+            'original_name' => 'evidence.jpg',
+            'captured_at' => now()->toISOString(),
+        ])->assertCreated();
+
+        $attachment = \App\Models\AssessmentSubmissionAttachment::query()
+            ->whereHas('submission', fn ($query) => $query->where('uuid', $uuid))
+            ->firstOrFail();
+
+        Storage::disk('s3')->assertExists($attachment->path);
+        $this->assertSame('s3', config('filesystems.default'));
+        $this->assertDatabaseHas('assessment_submission_attachments', [
+            'assessment_submission_id' => $attachment->assessment_submission_id,
+            'path' => $attachment->path,
+            'original_name' => 'evidence.jpg',
         ]);
     }
 

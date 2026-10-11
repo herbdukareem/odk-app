@@ -6,6 +6,7 @@ use App\Models\AssessmentAssignment;
 use App\Models\AssessmentExercise;
 use App\Models\AssessmentForm;
 use App\Models\AssessmentFormVersion;
+use App\Models\AssessmentSubmission;
 use App\Models\OdkUser;
 use App\Models\ReferenceFacility;
 use Illuminate\Http\JsonResponse;
@@ -44,6 +45,10 @@ class MobileAssignmentController
                 'facility.ward:id,source_id,name,reference_lga_id',
                 'user:id,name,email,staff_code',
                 'team:id,name',
+                'submissions' => fn ($query) => $query
+                    ->where('status', AssessmentSubmission::STATUS_RETURNED)
+                    ->latest('updated_at')
+                    ->with('attachments'),
             ])
             ->whereIn('status', [
                 AssessmentAssignment::STATUS_ASSIGNED,
@@ -131,6 +136,8 @@ class MobileAssignmentController
 
     private function assignmentPayload(AssessmentAssignment $assignment): array
     {
+        $submission = $assignment->submissions->first();
+
         return [
             'id' => $assignment->id,
             'uuid' => $assignment->uuid,
@@ -142,6 +149,25 @@ class MobileAssignmentController
             'allow_duplicate_submission' => $assignment->allow_duplicate_submission,
             'exercise' => $assignment->exercise ? $this->exercisePayload($assignment->exercise) : null,
             'facility' => $assignment->facility ? $this->facilityPayload($assignment) : null,
+            'submission' => $submission ? [
+                'uuid' => $submission->uuid,
+                'client_submission_id' => $submission->client_submission_id,
+                'assessment_id' => $submission->assessment_id,
+                'status' => $submission->status,
+                'answers' => $submission->answers_snapshot,
+                'validation_result' => $submission->validation_result,
+                'review_note' => $submission->review_note,
+                'reviewed_at' => $submission->reviewed_at?->toISOString(),
+                'submitted_at' => $submission->submitted_at?->toISOString(),
+                'attachments' => $submission->attachments->map(fn ($attachment): array => [
+                    'id' => $attachment->id,
+                    'field_key' => $attachment->field_key,
+                    'type' => $attachment->type,
+                    'original_name' => $attachment->original_name,
+                    'mime_type' => $attachment->mime_type,
+                    'download_url' => $attachment->download_url,
+                ])->values()->all(),
+            ] : null,
         ];
     }
 

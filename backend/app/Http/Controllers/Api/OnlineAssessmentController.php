@@ -159,7 +159,7 @@ class OnlineAssessmentController
         abort_unless($submission->assignment && $submissions->userCanAccessAssignment($request->user(), $submission->assignment), 403, 'You cannot modify this submission.');
 
         $payload = $request->validate([
-            'file' => ['required', 'file', 'max:20480', 'mimes:jpg,jpeg,png,pdf,webp,svg'],
+            'file' => ['required', 'file', 'max:20480', 'mimes:jpg,jpeg,png,pdf,webp,svg,heic,heif'],
             'field_key' => ['nullable', 'string', 'max:255'],
             'type' => ['nullable', 'string', 'max:40'],
             'captured_at' => ['nullable', 'date'],

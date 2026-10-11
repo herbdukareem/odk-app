@@ -17,6 +17,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use Throwable;
 
 class AssessmentSubmissionService
 {
@@ -30,14 +31,15 @@ class AssessmentSubmissionService
             $form = $this->resolveForm($payload);
             $version = $this->resolveVersion($form, $payload);
             $answers = $payload['answers'] ?? [];
-            $validation = $version
-                ? $this->ruleTester->testVersion($version, $answers)
-                : $this->ruleTester->test($form, $answers);
             $facility = $this->resolveFacility($payload);
             $assignment = $this->resolveAssignment($payload);
             if ($assignment?->facility) {
                 $facility = $assignment->facility;
             }
+            $answers = $this->normalizeFacilityAnswers($answers, $facility);
+            $validation = $version
+                ? $this->ruleTester->testVersion($version, $answers)
+                : $this->ruleTester->test($form, $answers);
             $exercise = $this->resolveExercise($payload, $assignment);
             $gps = $payload['gps'] ?? $answers['gps_coordinates'] ?? [];
             $status = $payload['status'] ?? AssessmentSubmission::STATUS_SUBMITTED;
@@ -193,6 +195,14 @@ class AssessmentSubmissionService
                 'review_note' => $payload['note'] ?? null,
             ])->save();
 
+            if ($to === AssessmentSubmission::STATUS_RETURNED && $submission->assignment) {
+                $submission->assignment->forceFill([
+                    'status' => AssessmentAssignment::STATUS_IN_PROGRESS,
+                    'submitted_at' => null,
+                    'completed_at' => null,
+                ])->save();
+            }
+
             $submission->reviews()->create([
                 'action' => $payload['action'],
                 'from_status' => $from,
@@ -213,42 +223,63 @@ class AssessmentSubmissionService
         $filename = Str::uuid().'.'.$extension;
         $originalName = $payload['original_name'] ?? $file->getClientOriginalName();
         $mimeType = $file->getClientMimeType();
-        $sizeBytes = $file->getSize();
         $type = $payload['type'] ?? $this->inferAttachmentType($mimeType);
         $directory = 'odk-evidence/submissions/'.$submission->uuid;
-        $disk = (string) config('filesystems.default', 'local');
-        $path = Storage::disk($disk)->putFileAs($directory, $file, $filename);
+        $disk = (string) config('filesystems.default', 's3');
+        $storage = Storage::disk($disk);
+        $path = $storage->putFileAs($directory, $file, $filename);
 
         if (!$path) {
             throw new RuntimeException('Evidence file could not be stored.');
         }
 
-        $attachment = $submission->attachments()->create([
-            'field_key' => $payload['field_key'] ?? null,
-            'type' => $type,
-            'path' => $path,
-            'original_name' => $originalName,
-            'mime_type' => $mimeType,
-            'size_bytes' => $sizeBytes,
-            'metadata' => $payload['metadata'] ?? null,
-            'captured_at' => $payload['captured_at'] ?? null,
-        ]);
+        try {
+            // Read metadata from the configured object store. The PHP upload temp file
+            // may already be unavailable by this point on the production host.
+            $sizeBytes = null;
+            try {
+                $sizeBytes = $storage->size($path);
+            } catch (Throwable) {
+                // Some S3-compatible credentials allow writes but not HEAD metadata.
+            }
 
-        $submission->syncEvents()->create([
-            'client_submission_id' => $submission->client_submission_id,
-            'direction' => 'upload',
-            'status' => 'received',
-            'reference_id' => $submission->assessment_id,
-            'message' => 'Evidence file uploaded.',
-            'payload' => [
-                'attachment_id' => $attachment->id,
-                'field_key' => $attachment->field_key,
-                'type' => $attachment->type,
-            ],
-            'attempted_at' => now(),
-        ]);
+            $attachment = $submission->attachments()->create([
+                'field_key' => $payload['field_key'] ?? null,
+                'type' => $type,
+                'path' => $path,
+                'original_name' => $originalName,
+                'mime_type' => $mimeType,
+                'size_bytes' => $sizeBytes,
+                'metadata' => $payload['metadata'] ?? null,
+                'captured_at' => $payload['captured_at'] ?? null,
+            ]);
 
-        return $attachment->fresh('submission');
+            $submission->syncEvents()->create([
+                'client_submission_id' => $submission->client_submission_id,
+                'direction' => 'upload',
+                'status' => 'received',
+                'reference_id' => $submission->assessment_id,
+                'message' => 'Evidence file uploaded.',
+                'payload' => [
+                    'attachment_id' => $attachment->id,
+                    'field_key' => $attachment->field_key,
+                    'type' => $attachment->type,
+                    'disk' => $disk,
+                ],
+                'attempted_at' => now(),
+            ]);
+
+            return $attachment->fresh('submission');
+        } catch (Throwable $exception) {
+            // Avoid orphaning an object when the database record cannot be created.
+            try {
+                $storage->delete($path);
+            } catch (Throwable) {
+                // Preserve the original exception for the API response/log.
+            }
+
+            throw $exception;
+        }
     }
 
     private function resolveForm(array $payload): AssessmentForm
@@ -262,6 +293,23 @@ class AssessmentSubmissionService
         }
 
         return AssessmentForm::where('slug', 'nicare-qa-checklist')->firstOrFail();
+    }
+
+    private function normalizeFacilityAnswers(array $answers, ?ReferenceFacility $facility): array
+    {
+        if ($facility === null) {
+            return $answers;
+        }
+
+        if ($facility->lga?->source_id !== null) {
+            $answers['lga_id'] = $facility->lga->source_id;
+        }
+
+        if ($facility->ward?->source_id !== null) {
+            $answers['ward_id'] = $facility->ward->source_id;
+        }
+
+        return $answers;
     }
 
     private function resolveVersion(AssessmentForm $form, array $payload): ?AssessmentFormVersion
