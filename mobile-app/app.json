@@ -13,9 +13,9 @@
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "NiCare QA uses the camera to attach facility evidence photos to assessments.",
-        "NSLocationWhenInUseUsageDescription": "NiCare QA records facility GPS coordinates for assessment verification.",
-        "NSPhotoLibraryUsageDescription": "NiCare QA can attach supporting evidence from your photo library."
+        "NSCameraUsageDescription": "DataKit uses the camera to attach facility evidence photos to assessments.",
+        "NSLocationWhenInUseUsageDescription": "DataKit records facility GPS coordinates for assessment verification.",
+        "NSPhotoLibraryUsageDescription": "DataKit can attach supporting evidence from your photo library."
       }
     },
     "android": {

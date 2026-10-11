@@ -42,7 +42,7 @@ class NicareQaChecklistSeeder extends Seeder
                 $form->uuid = (string) Str::uuid();
             }
             $form->fill([
-                'title' => 'NiCare QA Checklist',
+                'title' => 'DataKit QA Checklist',
                 'description' => 'Comprehensive facility assessment covering infrastructure, services, staff, supplies and regulatory compliance.',
                 'target_audience' => 'Facility assessment teams',
                 'requires_scoring' => true,
@@ -529,7 +529,7 @@ class NicareQaChecklistSeeder extends Seeder
                 ['label' => '>30 minutes but <2 hours', 'value' => 'gt_30_lt_2_hours', 'score' => 1],
                 ['label' => '>2 hours', 'value' => 'gt_2_hours', 'score' => 1],
             ]),
-            $this->yesNo('discriminates_against_nicare_enrollee', 'Does the personnel discriminate against NICARE enrollee?', 'patient_interaction', 0, 2),
+            $this->yesNo('discriminates_against_nicare_enrollee', 'Does the personnel discriminate against DataKit enrollee?', 'patient_interaction', 0, 2),
             $this->yesNo('satisfied_with_service_care', 'Are you satisfied with the overall service care in the facility?', 'patient_interaction'),
             $this->field('service_dissatisfaction_reason', 'Reason for dissatisfaction', 'textarea', 'patient_interaction', false, ['string'], ['visible_if' => ['field' => 'satisfied_with_service_care', 'operator' => 'equals', 'value' => 'no'], 'required_if' => ['satisfied_with_service_care' => 'no']]),
         ];

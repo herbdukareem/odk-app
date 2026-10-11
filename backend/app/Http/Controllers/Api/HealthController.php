@@ -10,7 +10,7 @@ class HealthController
     {
         return response()->json([
             'ok' => true,
-            'service' => config('app.name', 'NiCare ODK'),
+            'service' => config('app.name', 'DataKit Quality Assurance'),
             'timestamp' => now()->toIso8601String(),
         ]);
     }

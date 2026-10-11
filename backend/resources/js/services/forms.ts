@@ -98,7 +98,7 @@ type ApiEnvelope<T> = {
 const fallbackForms: AssessmentForm[] = [
   {
     slug: 'nicare-qa-checklist',
-    title: 'NiCare QA Checklist',
+    title: 'DataKit QA Checklist',
     description: 'Comprehensive facility assessment checklist',
     target_audience: 'Facility assessment teams',
     requires_scoring: true,

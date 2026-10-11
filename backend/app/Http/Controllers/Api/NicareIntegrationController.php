@@ -52,7 +52,7 @@ class NicareIntegrationController
 
         return response()->json([
             'success' => true,
-            'message' => 'NICARE reference data synced successfully.',
+            'message' => 'Reference data synced successfully.',
             'data' => $result,
         ], 202);
     }

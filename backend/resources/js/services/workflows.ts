@@ -32,7 +32,7 @@ export type SyncDevice = {
 };
 
 export const reviewQueue: SubmissionReview[] = [
-  { id: 'SUB-1024', facility: 'Bose PHC', form: 'NiCare QA Checklist', submitted: '12 Jan 2025, 10:24 AM', assessor: 'Sadiya Idris', score: '87%', status: 'Submitted', tone: 'green' },
+  { id: 'SUB-1024', facility: 'Bose PHC', form: 'DataKit QA Checklist', submitted: '12 Jan 2025, 10:24 AM', assessor: 'Sadiya Idris', score: '87%', status: 'Submitted', tone: 'green' },
   { id: 'SUB-1023', facility: 'Chanchaga PHC', form: 'Facility follow-up', submitted: '11 Jan 2025, 4:18 PM', assessor: 'Amina Yusuf', score: '72%', status: 'In review', tone: 'amber' },
   { id: 'SUB-1022', facility: 'Makunkele PHC', form: 'Infection control', submitted: '10 Jan 2025, 8:02 AM', assessor: 'Musa Danladi', score: '61%', status: 'Returned', tone: 'red' },
 ];

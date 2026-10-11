@@ -401,7 +401,7 @@ const fallbackFacilities: Facility[] = [
 
 const fallbackForm: FormSchema = {
   slug: 'nicare-qa-checklist',
-  title: 'NiCare QA Checklist',
+  title: 'DataKit QA Checklist',
   description: 'Offline starter schema. Download updates for the full published checklist.',
   version: 1,
   metadata_schema: {
@@ -1938,7 +1938,7 @@ function ReviewScreen({
       <View style={styles.reviewHeaderCard}>
         <Text style={styles.reviewEyebrow}>Final check</Text>
         <Text style={styles.screenTitle}>Review and finalize</Text>
-        <Text style={styles.muted}>Confirm the assessment is complete before sending it to NiCare.</Text>
+        <Text style={styles.muted}>Confirm the assessment is complete before sending it to DataKit.</Text>
       </View>
 
       <View style={styles.reviewFacilityCard}>

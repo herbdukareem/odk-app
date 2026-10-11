@@ -1,5 +1,6 @@
 <template>
-  <AuthScreen v-if="!signedIn" @signed-in="handleSignedIn" />
+  <LandingScreen v-if="!signedIn && landingVisible" @sign-in="openLogin" />
+  <AuthScreen v-else-if="!signedIn" @signed-in="handleSignedIn" />
 
   <div v-else class="app-frame">
     <AppSidebar :items="visibleNavItems" :active="activeSection" @select="openSection" />
@@ -41,6 +42,7 @@ import FacilitiesScreen from './screens/FacilitiesScreen.vue';
 import FormsScreen from './screens/FormsScreen.vue';
 import FormSettingsScreen from './screens/FormSettingsScreen.vue';
 import GenericScreen from './screens/GenericScreen.vue';
+import LandingScreen from './screens/LandingScreen.vue';
 import MobileSyncScreen from './screens/MobileSyncScreen.vue';
 import MyAssessmentsScreen from './screens/MyAssessmentsScreen.vue';
 import ReportsScreen from './screens/ReportsScreen.vue';
@@ -59,6 +61,7 @@ type NavLabel = 'Dashboard' | 'My assessments' | 'Forms' | 'Exercises' | 'Assign
 type AppView = 'dashboard' | 'my-assessments' | 'forms' | 'form-settings' | 'exercises' | 'assignments' | 'submissions' | 'facilities' | 'reports' | 'team' | 'mobile-sync' | 'generic';
 
 const signedIn = ref(false);
+const landingVisible = ref(window.location.pathname === '/');
 const currentUser = ref<OdkUser | null>(null);
 const isImpersonating = ref(false);
 const originalUser = ref<OdkUser | null>(null);
@@ -126,6 +129,7 @@ const sectionFromPath = (path: string): NavLabel => {
 
 const syncRoute = () => {
   const path = window.location.pathname;
+  landingVisible.value = path === '/';
   const section = sectionFromPath(path);
 
   activeSection.value = section;
@@ -159,6 +163,10 @@ const navigate = (path: string, replace = false) => {
 const openSection = (label: string) => {
   const section = label as NavLabel;
   navigate(sectionPaths[section] || '/dashboard');
+};
+
+const openLogin = () => {
+  navigate('/login');
 };
 
 const openAssignmentManager = (exerciseId?: number | string) => {
@@ -220,9 +228,6 @@ onMounted(async () => {
   window.addEventListener('popstate', syncRoute);
 
   if (!getOdkToken()) {
-    if (window.location.pathname === '/') {
-      navigate('/login', true);
-    }
     return;
   }
 

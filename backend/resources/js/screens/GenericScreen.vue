@@ -7,7 +7,7 @@
           <AppIcon name="forms" />
         </div>
         <h2>{{ section }} workspace</h2>
-        <p>This area inherits the shared NiCare design system: spacing, cards, badges, buttons, tables, inputs, and iconography.</p>
+        <p>This area inherits the shared DataKit design system: spacing, cards, badges, buttons, tables, inputs, and iconography.</p>
       </div>
     </QdsCard>
   </section>

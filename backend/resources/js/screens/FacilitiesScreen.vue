@@ -1,10 +1,10 @@
 <template>
   <section class="screen-stack">
-    <AppPageHeader title="Facilities" subtitle="Synced active facilities from the main NiCare system">
+    <AppPageHeader title="Facilities" subtitle="Synced active facilities for the DataKit workspace">
       <template #actions>
         <div class="qds-toolbar">
           <QdsButton icon="wifi" :variant="syncing ? 'secondary' : 'primary'" @click="syncReferences">
-            {{ syncing ? 'Syncing...' : 'Sync from NiCare' }}
+            {{ syncing ? 'Syncing...' : 'Sync reference data' }}
           </QdsButton>
           <QdsButton variant="secondary" @click="loadFacilities">Refresh</QdsButton>
         </div>
@@ -58,7 +58,7 @@
         <div v-for="facility in facilities" :key="facility.id" class="qds-table__row">
           <span class="table-title">
             {{ facility.name }}
-            <small>{{ facility.source_code || `NICARE-${facility.source_id}` }}</small>
+            <small>{{ facility.source_code || `DATAKIT-${facility.source_id}` }}</small>
           </span>
           <span>
             {{ facility.lga?.name || 'No LGA' }}
@@ -192,7 +192,7 @@ const syncReferences = async () => {
     page.value = 1;
     await loadFacilities();
   } catch (error) {
-    notice.value = error instanceof Error ? error.message : 'Unable to sync from NiCare.';
+    notice.value = error instanceof Error ? error.message : 'Unable to sync reference data.';
   } finally {
     syncing.value = false;
   }

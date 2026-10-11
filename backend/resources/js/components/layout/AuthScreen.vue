@@ -25,7 +25,7 @@
           <a href="#">Forgot password?</a>
         </div>
         <QdsButton type="submit" block>{{ submitting ? 'Signing in...' : 'Sign in' }}</QdsButton>
-        <p class="auth-note">By signing in, you agree to the NiCare terms of use.</p>
+        <p class="auth-note">By signing in, you agree to the DataKit terms of use.</p>
       </form>
     </section>
   </main>

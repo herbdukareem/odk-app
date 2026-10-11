@@ -10,7 +10,7 @@ class BootstrapController
     {
         return response()->json([
             'product' => [
-                'name' => 'NiCare Quality Assurance',
+                'name' => 'DataKit Quality Assurance',
                 'phase' => 'foundation',
             ],
             'roles' => config('odk.roles'),
