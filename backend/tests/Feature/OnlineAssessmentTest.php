@@ -144,6 +144,44 @@ class OnlineAssessmentTest extends TestCase
         ]);
     }
 
+    public function test_returned_submission_is_available_in_the_assessors_mobile_assignments(): void
+    {
+        $user = $this->createUser('returned-assessment@example.com');
+        [$assignment, $exercise, $form, $version, $facility] = $this->createAssignment($user);
+
+        $submission = $this->postJson('/api/mobile/submissions', [
+            'client_submission_id' => 'mobile-returned',
+            'form_slug' => $form->slug,
+            'form_version_id' => $version->id,
+            'assessment_exercise_id' => $exercise->id,
+            'assessment_assignment_id' => $assignment->id,
+            'facility_id' => $facility->source_id,
+            'facility_name' => $facility->name,
+            'assessment_date' => now()->toDateString(),
+            'source' => 'mobile',
+            'status' => 'submitted',
+            'answers' => ['assessment_date' => now()->toDateString()],
+        ])->assertCreated();
+
+        $uuid = (string) $submission->json('data.uuid');
+
+        $this->postJson('/api/submissions/'.$uuid.'/review', [
+            'action' => 'return',
+            'note' => 'Please correct the assessment details.',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('assessment_assignments', [
+            'id' => $assignment->id,
+            'status' => AssessmentAssignment::STATUS_IN_PROGRESS,
+        ]);
+
+        $this->getJson('/api/mobile/assignments?assessor_id='.$user->id.'&assessor_email='.urlencode($user->email))
+            ->assertOk()
+            ->assertJsonPath('data.assignments.0.submission.uuid', $uuid)
+            ->assertJsonPath('data.assignments.0.submission.status', 'returned')
+            ->assertJsonPath('data.assignments.0.submission.review_note', 'Please correct the assessment details.');
+    }
+
     private function createUser(string $email): OdkUser
     {
         return OdkUser::create([

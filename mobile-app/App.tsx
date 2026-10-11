@@ -158,6 +158,27 @@ type MobileAssignment = {
   allow_duplicate_submission?: boolean;
   exercise?: MobileExercise | null;
   facility?: Facility | null;
+  submission?: MobileAssignmentSubmission | null;
+};
+
+type MobileAssignmentSubmission = {
+  uuid: string;
+  client_submission_id?: string | null;
+  assessment_id?: string | null;
+  status: string;
+  answers?: Record<string, unknown> | null;
+  validation_result?: ValidationResult | null;
+  review_note?: string | null;
+  reviewed_at?: string | null;
+  submitted_at?: string | null;
+  attachments?: Array<{
+    id: number;
+    field_key?: string | null;
+    type?: string | null;
+    original_name?: string | null;
+    mime_type?: string | null;
+    download_url?: string | null;
+  }>;
 };
 
 type EvidenceAttachment = {
@@ -179,6 +200,8 @@ type GpsValue = {
 
 type DraftAssessment = {
   id: string;
+  clientSubmissionId?: string;
+  reviewNote?: string | null;
   assessmentId: string;
   formSlug: string;
   formTitle: string;
@@ -579,6 +602,10 @@ export default function App() {
         .map(mapPublishedForm)
         .filter((item): item is FormSchema => item !== null);
       const downloadedFacilities = (assignmentResponse.data.facilities ?? []).filter(Boolean);
+      const returnedDrafts = downloadedAssignments
+        .map((assignment) => draftFromReturnedAssignment(assignment, downloadedForms))
+        .filter((draft): draft is DraftAssessment => draft !== null);
+      const newReturnedDrafts = returnedDrafts.filter((draft) => !drafts.some((existing) => existing.id === draft.id));
 
       setAssignments(downloadedAssignments);
       await saveJson(STORAGE_KEYS.assignments, downloadedAssignments);
@@ -588,6 +615,19 @@ export default function App() {
 
       setFacilities(downloadedFacilities);
       await saveJson(STORAGE_KEYS.facilities, downloadedFacilities);
+
+      if (newReturnedDrafts.length > 0) {
+        const nextDrafts = [...newReturnedDrafts, ...drafts];
+        setDrafts(nextDrafts);
+        await saveJson(STORAGE_KEYS.drafts, nextDrafts);
+        Alert.alert(
+          'Assessment returned',
+          String(newReturnedDrafts.length) +
+            (newReturnedDrafts.length === 1
+              ? ' assessment is back on this device for correction.'
+              : ' assessments are back on this device for correction.')
+        );
+      }
 
       if (selectedExerciseId !== 'all' && !downloadedFacilities.some((facility) => String(facility.exercise_id) === selectedExerciseId)) {
         setSelectedExerciseId('all');
@@ -663,8 +703,8 @@ export default function App() {
         assessor_id: assessor.id,
         facility_id: facility.id,
         facility_name: facility.name,
-        lga_id: facility.lga ?? facility.lga_id ?? '',
-        ward_id: facility.ward ?? facility.ward_id ?? '',
+        lga_id: facility.lga_id ?? '',
+        ward_id: facility.ward_id ?? '',
         assessment_exercise_id: facility.exercise_id ?? '',
         assessment_assignment_id: facility.assignment_id ?? '',
       },
@@ -1004,7 +1044,7 @@ export default function App() {
     const signatureAttachments = await createSignatureAttachments(draft);
     const submissionAttachments = [...draft.attachments, ...signatureAttachments];
     const payload = {
-      client_submission_id: draft.id,
+      client_submission_id: draft.clientSubmissionId ?? draft.id,
       assessment_id: draft.assessmentId,
       form_slug: draft.formSlug,
       form_version: draft.formVersion,
@@ -1033,7 +1073,6 @@ export default function App() {
       status: 'submitted',
       answers: draft.answers,
       gps: draft.answers.gps_coordinates ?? null,
-      attachments: [],
       device: {
         app: 'nicare-odk-mobile',
         api_base_url: API_BASE_URL,
@@ -1608,6 +1647,12 @@ function AssessmentScreen({
     <>
       <Text style={styles.screenTitle}>{draft.facility.name}</Text>
       <Text style={styles.muted}>{draft.formTitle} - Section {draft.currentSectionIndex + 1} of {form.sections.length}</Text>
+      {draft.reviewNote ? (
+        <View style={styles.versionNotice}>
+          <Text style={styles.versionNoticeTitle}>Returned for correction</Text>
+          <Text style={styles.versionNoticeText}>{draft.reviewNote}</Text>
+        </View>
+      ) : null}
       {newerVersionAvailable ? (
         <View style={styles.versionNotice}>
           <Text style={styles.versionNoticeTitle}>Using saved form version {form.version}</Text>
@@ -2698,6 +2743,62 @@ function isBlankAnswer(value: unknown): boolean {
   }
 
   return false;
+}
+
+function draftFromReturnedAssignment(assignment: MobileAssignment, availableForms: FormSchema[]): DraftAssessment | null {
+  const submission = assignment.submission;
+  const facility = assignment.facility;
+
+  if (!submission || submission.status !== 'returned' || !facility) {
+    return null;
+  }
+
+  const form = formForFacility(facility, availableForms) ?? availableForms[0] ?? fallbackForm;
+  const formSnapshot = cloneFormSchema(form);
+  const answers = { ...(submission.answers ?? {}) };
+  const returnedAt = submission.submitted_at ?? new Date().toISOString();
+  const assessmentId = String(
+    submission.assessment_id ??
+      answers.assessment_id ??
+      'RETURNED-' + submission.uuid.slice(0, 8).toUpperCase()
+  );
+
+  answers.assessment_id = assessmentId;
+  answers.assessment_date = answers.assessment_date ?? returnedAt.slice(0, 10);
+  answers.assessor_id = answers.assessor_id ?? assessor.id;
+  answers.facility_id = facility.id;
+  answers.facility_name = facility.name;
+  answers.lga_id = facility.lga_id ?? '';
+  answers.ward_id = facility.ward_id ?? '';
+  answers.assessment_exercise_id = facility.exercise_id ?? '';
+  answers.assessment_assignment_id = facility.assignment_id ?? '';
+
+  return {
+    id: 'returned-' + submission.uuid,
+    clientSubmissionId: submission.client_submission_id ?? undefined,
+    reviewNote: submission.review_note ?? null,
+    assessmentId,
+    formSlug: formSnapshot.slug,
+    formTitle: formSnapshot.title,
+    formVersion: formSnapshot.version,
+    formVersionId: formSnapshot.version_id,
+    assessmentExerciseId: facility.exercise_id,
+    assessmentExerciseUuid: facility.exercise_uuid,
+    assessmentAssignmentId: facility.assignment_id,
+    assignmentUuid: facility.assignment_uuid,
+    exerciseName: facility.exercise_name,
+    exerciseStatus: facility.exercise_status,
+    exerciseStartsAt: facility.exercise_starts_at,
+    exerciseEndsAt: facility.exercise_ends_at,
+    formSchema: formSnapshot,
+    facility,
+    assessor,
+    answers,
+    attachments: [],
+    currentSectionIndex: 0,
+    startedAt: returnedAt,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function mapPublishedForm(record: PublishedFormResponse['data'][number]): FormSchema | null {
