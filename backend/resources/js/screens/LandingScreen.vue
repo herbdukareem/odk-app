@@ -17,8 +17,12 @@
         </p>
         <div class="landing-copy__actions">
           <QdsButton icon="arrowLeft" @click="$emit('sign-in')">Open workspace</QdsButton>
-          <span>Secure access for assigned teams</span>
+          <a class="landing-download" href="/downloads/datakit-qa.apk" download>
+            <AppIcon name="upload" />
+            Download Android app
+          </a>
         </div>
+        <p class="landing-copy__hint">Secure access for assigned teams</p>
         <div class="landing-proof">
           <div>
             <strong>Offline first</strong>
@@ -163,7 +167,13 @@
           <p class="landing-kicker">READY WHEN YOU ARE</p>
           <h2>Bring better data to the next round.</h2>
         </div>
-        <QdsButton icon="arrowLeft" @click="$emit('sign-in')">Sign in to DataKit</QdsButton>
+        <div class="landing-cta__actions">
+          <QdsButton icon="arrowLeft" @click="$emit('sign-in')">Sign in to DataKit</QdsButton>
+          <a class="landing-download landing-download--light" href="/downloads/datakit-qa.apk" download>
+            <AppIcon name="upload" />
+            Get the Android app
+          </a>
+        </div>
       </div>
     </section>
 
@@ -171,7 +181,7 @@
       <div class="landing-footer__inner">
         <BrandMark theme="light" />
         <span>Quality assurance, from the field to the review room.</span>
-        <small>DataKit</small>
+        <a href="/downloads/datakit-qa.apk" download>Download Android app</a>
       </div>
     </footer>
   </main>
@@ -179,6 +189,7 @@
 
 <script setup lang="ts">
 import BrandMark from '../components/layout/BrandMark.vue';
+import AppIcon from '../AppIcon.vue';
 import QdsButton from '../components/qds/QdsButton.vue';
 
 defineEmits<{
@@ -290,10 +301,39 @@ defineEmits<{
   margin-top: 30px;
 }
 
-.landing-copy__actions > span {
+.landing-copy__hint {
+  margin: 10px 0 0;
   color: #617169;
   font-size: 11px;
   font-weight: 800;
+}
+
+.landing-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 15px;
+  border: 1px solid #a9c9b8;
+  border-radius: 7px;
+  color: #0e5a3a;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.landing-download:hover {
+  border-color: #0e5a3a;
+  background: #edf7f0;
+}
+
+.landing-download :deep(.app-icon) {
+  width: 15px;
+  height: 15px;
+  transform: rotate(180deg);
 }
 
 .landing-proof {
@@ -911,6 +951,20 @@ defineEmits<{
   font-size: 38px;
 }
 
+.landing-cta__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.landing-download--light {
+  border-color: #8bbfa5;
+  color: #0e5a3a;
+  background: transparent;
+}
+
 .landing-cta .landing-kicker {
   margin-bottom: 13px;
 }
@@ -934,13 +988,18 @@ defineEmits<{
 }
 
 .landing-footer__inner span,
-.landing-footer__inner small {
+.landing-footer__inner a {
   font-size: 11px;
   font-weight: 800;
 }
 
-.landing-footer__inner small {
+.landing-footer__inner a {
   color: #9be0b7;
+  text-decoration: none;
+}
+
+.landing-footer__inner a:hover {
+  color: #fff;
 }
 
 @media (max-width: 1050px) {
@@ -971,6 +1030,8 @@ defineEmits<{
   .landing-hero { min-height: auto; padding: 34px 0 28px; }
   .landing-copy h1 { font-size: 48px; }
   .landing-copy__intro { font-size: 15px; }
+  .landing-copy__actions { align-items: stretch; flex-direction: column; }
+  .landing-download { width: fit-content; }
   .landing-proof { margin-top: 38px; }
   .landing-stage { min-height: 510px; margin: 0 -8px; }
   .landing-desktop-preview { top: 6%; right: -23%; width: 88%; }
@@ -996,6 +1057,7 @@ defineEmits<{
   .landing-cta { padding: 40px 0; }
   .landing-cta__inner { align-items: flex-start; flex-direction: column; padding: 28px 22px; }
   .landing-cta h2 { font-size: 32px; }
+  .landing-cta__actions { justify-content: flex-start; }
   .landing-footer__inner { align-items: flex-start; flex-direction: column; }
 }
 </style>
