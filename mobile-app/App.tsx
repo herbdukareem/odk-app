@@ -1024,7 +1024,9 @@ export default function App() {
 
     setLastMessage(
       synced.length > 0
-        ? `Synced ${synced.length} assessment(s). ${workingQueue.length} pending.`
+        ? workingQueue.length > 0
+          ? `Synced ${synced.length} assessment(s). ${workingQueue.length} still need attention.`
+          : 'All pending assessments and evidence uploaded successfully.'
         : 'No uploads completed. Check the failed items and retry.'
     );
     setSyncing(false);
@@ -1136,6 +1138,8 @@ export default function App() {
       type: attachment.mimeType,
     } as unknown as Blob);
     data.append('field_key', attachment.fieldKey);
+    // The API uses this stable local ID to make timeout retries idempotent.
+    data.append('client_attachment_id', attachment.id);
     data.append('type', attachment.type);
     data.append('original_name', attachment.name);
     data.append('captured_at', attachment.capturedAt);
@@ -2177,6 +2181,16 @@ function SyncScreen({
                   </View>
                 );
               })}
+              {Object.entries(item.attachmentStatus ?? {})
+                .filter(([, attachment]) => attachment.status === 'failed')
+                .map(([attachmentId, attachment]) => {
+                  const failedFile = item.draft.attachments.find((candidate) => candidate.id === attachmentId);
+                  return (
+                    <Text key={attachmentId} style={styles.errorText}>
+                      {failedFile?.name ?? 'Evidence file'}: {attachment.error ?? 'Upload failed.'}
+                    </Text>
+                  );
+                })}
             </View>
           ) : null}
           {item.status === 'failed' ? (

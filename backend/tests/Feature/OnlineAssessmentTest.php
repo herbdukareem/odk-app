@@ -144,6 +144,54 @@ class OnlineAssessmentTest extends TestCase
         ]);
     }
 
+    public function test_mobile_evidence_retry_with_the_same_client_id_does_not_create_a_duplicate(): void
+    {
+        Storage::fake('s3');
+        config(['filesystems.default' => 's3']);
+
+        $user = $this->createUser('mobile-evidence-retry@example.com');
+        [$assignment, $exercise, $form, $version, $facility] = $this->createAssignment($user);
+
+        $submission = $this->postJson('/api/mobile/submissions', [
+            'client_submission_id' => 'mobile-evidence-retry',
+            'form_slug' => $form->slug,
+            'form_version_id' => $version->id,
+            'assessment_exercise_id' => $exercise->id,
+            'assessment_assignment_id' => $assignment->id,
+            'facility_id' => $facility->source_id,
+            'facility_name' => $facility->name,
+            'assessment_date' => now()->toDateString(),
+            'source' => 'mobile',
+            'status' => 'submitted',
+            'answers' => ['assessment_date' => now()->toDateString()],
+        ])->assertCreated();
+
+        $uuid = (string) $submission->json('data.uuid');
+        $payload = [
+            'field_key' => 'facility_photos',
+            'client_attachment_id' => 'evidence-stable-id-1',
+            'type' => 'photo',
+            'original_name' => 'evidence.jpg',
+            'captured_at' => now()->toISOString(),
+        ];
+
+        $this->post('/api/mobile/submissions/'.$uuid.'/attachments', [
+            ...$payload,
+            'file' => UploadedFile::fake()->image('evidence.jpg'),
+        ])->assertCreated();
+
+        $this->post('/api/mobile/submissions/'.$uuid.'/attachments', [
+            ...$payload,
+            'file' => UploadedFile::fake()->image('evidence-retry.jpg'),
+        ])->assertCreated();
+
+        $this->assertDatabaseCount('assessment_submission_attachments', 1);
+        $this->assertDatabaseHas('assessment_submission_attachments', [
+            'client_attachment_id' => 'evidence-stable-id-1',
+            'original_name' => 'evidence.jpg',
+        ]);
+    }
+
     public function test_returned_submission_is_available_in_the_assessors_mobile_assignments(): void
     {
         $user = $this->createUser('returned-assessment@example.com');

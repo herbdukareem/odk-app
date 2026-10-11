@@ -219,6 +219,17 @@ class AssessmentSubmissionService
 
     public function attachEvidence(AssessmentSubmission $submission, UploadedFile $file, array $payload): AssessmentSubmissionAttachment
     {
+        $clientAttachmentId = $payload['client_attachment_id'] ?? null;
+        if ($clientAttachmentId) {
+            $existing = $submission->attachments()
+                ->where('client_attachment_id', $clientAttachmentId)
+                ->first();
+
+            if ($existing) {
+                return $existing->fresh('submission');
+            }
+        }
+
         $extension = $file->getClientOriginalExtension() ?: $file->guessExtension() ?: 'bin';
         $filename = Str::uuid().'.'.$extension;
         $originalName = $payload['original_name'] ?? $file->getClientOriginalName();
@@ -244,6 +255,7 @@ class AssessmentSubmissionService
             }
 
             $attachment = $submission->attachments()->create([
+                'client_attachment_id' => $clientAttachmentId,
                 'field_key' => $payload['field_key'] ?? null,
                 'type' => $type,
                 'path' => $path,
@@ -262,6 +274,7 @@ class AssessmentSubmissionService
                 'message' => 'Evidence file uploaded.',
                 'payload' => [
                     'attachment_id' => $attachment->id,
+                    'client_attachment_id' => $attachment->client_attachment_id,
                     'field_key' => $attachment->field_key,
                     'type' => $attachment->type,
                     'disk' => $disk,
