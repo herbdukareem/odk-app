@@ -2,6 +2,9 @@
   <main class="auth-screen">
     <section class="auth-brand">
       <BrandMark theme="light" />
+      <div class="auth-illustration">
+        <img :src="illustrationUrl" alt="A health centre with a field assessor syncing a completed checklist from a phone">
+      </div>
       <div>
         <p class="qds-kicker">W01</p>
         <h1>Better data. Stronger healthcare.</h1>
@@ -45,6 +48,7 @@ const email = ref('');
 const password = ref('');
 const submitting = ref(false);
 const errorMessage = ref('');
+const illustrationUrl = '/brand/datakit-login-illustration.svg';
 
 const submit = async () => {
   errorMessage.value = '';

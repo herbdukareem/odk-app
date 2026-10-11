@@ -373,19 +373,23 @@ h3 {
 }
 
 .auth-screen {
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1fr);
+  overflow: hidden;
   background: var(--qds-white);
 }
 
 .auth-brand {
   display: flex;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100%;
   flex-direction: column;
   justify-content: space-between;
-  gap: 48px;
-  padding: 56px;
+  gap: 24px;
+  overflow: hidden;
+  padding: 36px 56px 32px;
   color: var(--qds-white);
   background:
     linear-gradient(150deg, rgba(5, 41, 31, 0.1), rgba(5, 41, 31, 0.88)),
@@ -398,6 +402,23 @@ h3 {
   font-size: 42px;
 }
 
+.auth-illustration {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  width: 100%;
+}
+
+.auth-illustration img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+
 .auth-brand p:not(.qds-kicker) {
   max-width: 540px;
   color: rgba(255, 255, 255, 0.78);
@@ -407,8 +428,10 @@ h3 {
 
 .auth-panel {
   display: grid;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100%;
   align-items: center;
+  overflow: hidden;
   padding: 48px;
   background: linear-gradient(180deg, var(--qds-white), #f8fbf9);
 }
@@ -2088,8 +2111,16 @@ h3 {
 
   .auth-brand,
   .auth-panel {
+    height: auto;
     min-height: auto;
+    overflow: visible;
     padding: 28px;
+  }
+
+  .auth-screen {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
   }
 
   .app-sidebar {
