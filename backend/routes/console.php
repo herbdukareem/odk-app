@@ -2,12 +2,43 @@
 
 use Illuminate\Support\Facades\Artisan;
 use App\Models\AssessmentForm;
+use App\Models\OdkPlan;
 use Database\Seeders\NicareQaChecklistSeeder;
+use Database\Seeders\OdkSaasPlanSeeder;
 use App\Services\Integration\NicareReferenceSyncService;
+use App\Services\Billing\BillingSubscriptionService;
 
 Artisan::command('odk:about', function (): void {
     $this->info('DataKit Quality Assurance ODK backend');
 })->purpose('Show the ODK backend name');
+
+Artisan::command('odk:ensure-saas-plans {--sync-pricing : Apply ODK_PROFESSIONAL_PRICE to the Professional plan}', function (): int {
+    $this->call('db:seed', [
+        '--class' => OdkSaasPlanSeeder::class,
+        '--force' => true,
+    ]);
+
+    if ($this->option('sync-pricing')) {
+        $price = config('billing.professional_price');
+        if ($price === null || !is_numeric($price) || (float) $price <= 0) {
+            $this->error('Set a positive ODK_PROFESSIONAL_PRICE before syncing pricing.');
+
+            return self::FAILURE;
+        }
+
+        OdkPlan::query()->where('code', 'professional')->update(['price_amount' => (float) $price]);
+        $this->info('Professional plan pricing synchronized.');
+    }
+
+    return self::SUCCESS;
+})->purpose('Create or update the DataKit SaaS plans');
+
+Artisan::command('odk:expire-subscriptions', function (BillingSubscriptionService $billing): int {
+    $count = $billing->expireDueSubscriptions();
+    $this->info("Expired {$count} subscription(s).");
+
+    return self::SUCCESS;
+})->purpose('Downgrade paid subscriptions whose billing period has ended');
 
 Artisan::command('nicare:sync-reference-data', function (NicareReferenceSyncService $syncService): int {
     $summary = $syncService->sync();

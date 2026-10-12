@@ -1,3 +1,5 @@
+import { authenticatedRequest } from './auth';
+
 export type FormStatus = 'draft' | 'published' | 'archived' | 'retired' | string;
 
 export type AssessmentFormVersion = {
@@ -151,7 +153,7 @@ const fallbackForms: AssessmentForm[] = [
 ];
 
 const readJson = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const response = await authenticatedRequest(url, { method: 'GET' });
   if (!response.ok) {
     throw new Error(`Request failed with status ${response.status}.`);
   }
@@ -160,7 +162,7 @@ const readJson = async <T>(url: string): Promise<T> => {
 };
 
 const writeJson = async <T>(url: string, method: string, body?: unknown): Promise<T> => {
-  const response = await fetch(url, {
+  const response = await authenticatedRequest(url, {
     method,
     headers: {
       Accept: 'application/json',

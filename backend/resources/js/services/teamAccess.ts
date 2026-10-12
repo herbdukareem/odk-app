@@ -8,6 +8,21 @@ export type OdkRole = {
   permissions?: string[] | null;
 };
 
+export type OdkWorkspaceSummary = {
+  id: number;
+  uuid: string;
+  slug: string;
+  name: string;
+  type: 'individual' | 'organization';
+  status: string;
+  is_platform_admin?: boolean;
+  pivot?: {
+    role_key: string;
+    status: string;
+    joined_at?: string | null;
+  };
+};
+
 export type OdkUser = {
   id: number;
   uuid: string;
@@ -20,6 +35,7 @@ export type OdkUser = {
   assigned_lga?: string | null;
   assigned_ward?: string | null;
   role?: OdkRole | null;
+  workspaces?: OdkWorkspaceSummary[];
   teams?: Array<Pick<OdkTeam, 'id' | 'name' | 'status'>>;
 };
 

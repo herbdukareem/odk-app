@@ -1,3 +1,5 @@
+import { authenticatedRequest } from './auth';
+
 export type DashboardTone = 'green' | 'amber' | 'blue' | 'slate' | 'red';
 
 export type DashboardExercise = {
@@ -84,7 +86,7 @@ type ApiEnvelope<T> = {
 };
 
 const readJson = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const response = await authenticatedRequest(url, { method: 'GET' });
   if (!response.ok) throw new Error(`Request failed with status ${response.status}.`);
   return response.json() as Promise<T>;
 };

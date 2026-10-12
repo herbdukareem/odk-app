@@ -9,6 +9,7 @@ use App\Models\AssessmentExercise;
 use App\Models\AssessmentSubmission;
 use App\Models\AssessmentSubmissionAttachment;
 use App\Models\OdkUser;
+use App\Models\OdkTarget;
 use App\Models\ReferenceFacility;
 use App\Services\Forms\FormRuleTester;
 use Illuminate\Support\Facades\DB;
@@ -36,11 +37,14 @@ class AssessmentSubmissionService
             if ($assignment?->facility) {
                 $facility = $assignment->facility;
             }
+            $exercise = $this->resolveExercise($payload, $assignment);
+            $target = $assignment?->target;
+            $targetType = $assignment?->target_type ?? $payload['target_type'] ?? $exercise?->target_type ?? ($facility ? OdkTarget::TYPE_FACILITY : OdkTarget::TYPE_NONE);
+            $targetId = $assignment?->odk_target_id ?? $payload['target_id'] ?? null;
             $answers = $this->normalizeFacilityAnswers($answers, $facility);
             $validation = $version
                 ? $this->ruleTester->testVersion($version, $answers)
                 : $this->ruleTester->test($form, $answers);
-            $exercise = $this->resolveExercise($payload, $assignment);
             $gps = $payload['gps'] ?? $answers['gps_coordinates'] ?? [];
             $status = $payload['status'] ?? AssessmentSubmission::STATUS_SUBMITTED;
 
@@ -59,7 +63,7 @@ class AssessmentSubmissionService
                 : new AssessmentSubmission;
 
             $this->ensureExerciseAcceptsSubmission($exercise, $status);
-            $this->ensureSubmissionAllowed($submission, $exercise, $assignment, $facility, $status);
+            $this->ensureSubmissionAllowed($submission, $exercise, $assignment, $facility, $targetType, $targetId, $status);
 
             $submission->fill([
                 'uuid' => $submission->uuid ?? ($payload['uuid'] ?? (string) Str::uuid()),
@@ -70,10 +74,12 @@ class AssessmentSubmissionService
                 'assessment_exercise_id' => $exercise?->id,
                 'assessment_assignment_id' => $assignment?->id,
                 'reference_facility_id' => $facility?->id,
+                'target_type' => $targetType,
+                'odk_target_id' => $targetId,
                 'facility_external_id' => $payload['facility']['id'] ?? $payload['facility_id'] ?? $facility?->source_id,
-                'facility_name' => $payload['facility']['name'] ?? $payload['facility_name'] ?? $facility?->name ?? 'Unknown facility',
+                'facility_name' => $payload['facility']['name'] ?? $payload['facility_name'] ?? $target?->name ?? $payload['target_name'] ?? $facility?->name ?? 'No target',
                 'facility_code' => $payload['facility']['code'] ?? $facility?->source_code,
-                'facility_type' => $payload['facility']['type'] ?? $facility?->type,
+                'facility_type' => $payload['facility']['type'] ?? $facility?->type ?? $targetType,
                 'lga_name' => $payload['facility']['lga'] ?? $payload['lga'] ?? $facility?->lga?->name,
                 'ward_name' => $payload['facility']['ward'] ?? $payload['ward'] ?? $facility?->ward?->name,
                 'assessor_id' => $payload['assessor']['id'] ?? $payload['assessor_id'] ?? null,
@@ -88,6 +94,7 @@ class AssessmentSubmissionService
                 'gps_longitude' => $gps['longitude'] ?? null,
                 'gps_accuracy_meters' => $gps['accuracy_meters'] ?? $gps['accuracy'] ?? null,
                 'facility_snapshot' => $payload['facility'] ?? null,
+                'target_snapshot' => $payload['target'] ?? ($target?->toArray()),
                 'assessor_snapshot' => $payload['assessor'] ?? null,
                 'device_snapshot' => $payload['device'] ?? null,
                 'answers_snapshot' => $answers,
@@ -160,6 +167,22 @@ class AssessmentSubmissionService
         $payload['assessor_name'] = $user->name;
 
         return $this->submit($payload, true);
+    }
+
+    public function submitMobile(OdkUser $user, array $payload): AssessmentSubmission
+    {
+        $assignment = $this->resolveAssignment($payload);
+        abort_unless($assignment && $this->userCanAccessAssignment($user, $assignment), 403, 'This assessment is not assigned to your account or team.');
+
+        $payload['source'] = 'mobile';
+        $payload['assessor'] = [
+            'id' => $user->staff_code ?: (string) $user->id,
+            'local_id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+        ];
+
+        return $this->submit($payload);
     }
 
     public function userCanAccessAssignment(OdkUser $user, AssessmentAssignment $assignment): bool
@@ -365,12 +388,12 @@ class AssessmentSubmissionService
     {
         $assignmentUuid = $payload['assignment_uuid'] ?? null;
         if ($assignmentUuid) {
-            return AssessmentAssignment::with(['exercise', 'facility.lga', 'facility.ward'])->where('uuid', $assignmentUuid)->firstOrFail();
+            return AssessmentAssignment::with(['exercise', 'facility.lga', 'facility.ward', 'target'])->where('uuid', $assignmentUuid)->firstOrFail();
         }
 
         $assignmentId = $payload['assessment_assignment_id'] ?? $payload['assignment_id'] ?? null;
         if ($assignmentId) {
-            return AssessmentAssignment::with(['exercise', 'facility.lga', 'facility.ward'])->findOrFail($assignmentId);
+            return AssessmentAssignment::with(['exercise', 'facility.lga', 'facility.ward', 'target'])->findOrFail($assignmentId);
         }
 
         return null;
@@ -400,9 +423,11 @@ class AssessmentSubmissionService
         ?AssessmentExercise $exercise,
         ?AssessmentAssignment $assignment,
         ?ReferenceFacility $facility,
+        string $targetType,
+        mixed $targetId,
         string $status
     ): void {
-        if ($exercise === null || $facility === null || $status === AssessmentSubmission::STATUS_DRAFT) {
+        if ($exercise === null || $status === AssessmentSubmission::STATUS_DRAFT) {
             return;
         }
 
@@ -412,14 +437,17 @@ class AssessmentSubmissionService
 
         $duplicate = AssessmentSubmission::query()
             ->where('assessment_exercise_id', $exercise->id)
-            ->where('reference_facility_id', $facility->id)
+            ->where('target_type', $targetType)
             ->where('status', '!=', AssessmentSubmission::STATUS_DRAFT)
+            ->when($targetType === OdkTarget::TYPE_FACILITY && $facility, fn ($query) => $query->where('reference_facility_id', $facility->id))
+            ->when($targetType !== OdkTarget::TYPE_FACILITY && $targetId, fn ($query) => $query->where('odk_target_id', $targetId))
+            ->when($targetType === OdkTarget::TYPE_NONE, fn ($query) => $query->whereNull('odk_target_id')->whereNull('reference_facility_id'))
             ->when($submission->exists, fn ($query) => $query->whereKeyNot($submission->id))
             ->exists();
 
         if ($duplicate) {
             throw ValidationException::withMessages([
-                'facility_id' => ['This facility already has a submitted assessment for the selected exercise.'],
+                'target_id' => ['This target already has a submitted assessment for the selected exercise.'],
             ]);
         }
     }

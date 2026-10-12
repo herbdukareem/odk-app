@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\OdkRole;
 use App\Models\OdkTeam;
 use App\Models\OdkUser;
+use App\Models\OdkWorkspace;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -14,7 +15,7 @@ class OdkTeamAccessSeeder extends Seeder
     public function run(): void
     {
         $roles = [
-            ['key' => 'admin', 'name' => 'Admin', 'description' => 'Manage users, teams, exercises, forms, assignments and reviews.', 'sort_order' => 1],
+            ['key' => 'admin', 'name' => 'Workspace admin', 'description' => 'Manage users, teams, exercises, forms, assignments and reviews within the workspace.', 'sort_order' => 1],
             ['key' => 'form_manager', 'name' => 'Form manager', 'description' => 'Create and publish forms and validation rules.', 'sort_order' => 2],
             ['key' => 'coordinator', 'name' => 'QA coordinator', 'description' => 'Plan exercises and assign assessors or teams.', 'sort_order' => 3],
             ['key' => 'team_lead', 'name' => 'Team lead', 'description' => 'Coordinate assigned field assessment team members.', 'sort_order' => 4],
@@ -80,6 +81,7 @@ class OdkTeamAccessSeeder extends Seeder
                     'staff_code' => strtoupper(Str::before($user['email'], '@')),
                     'designation' => $user['designation'],
                     'status' => OdkUser::STATUS_ACTIVE,
+                    'is_platform_admin' => $user['role'] === 'admin',
                     'assigned_lga' => $user['assigned_lga'],
                     'assigned_ward' => null,
                     'password' => Hash::make('password'),
@@ -87,10 +89,37 @@ class OdkTeamAccessSeeder extends Seeder
             );
         }
 
+        $workspace = OdkWorkspace::firstOrCreate(
+            ['slug' => 'datakit'],
+            [
+                'uuid' => (string) Str::uuid(),
+                'name' => 'DataKit',
+                'type' => OdkWorkspace::TYPE_ORGANIZATION,
+                'status' => OdkWorkspace::STATUS_ACTIVE,
+                'owner_user_id' => $userModels['amina.yusuf@health.gov.ng']->id ?? null,
+                'settings' => ['legacy_default' => true],
+            ]
+        );
+
+        if (!$workspace->owner_user_id && isset($userModels['amina.yusuf@health.gov.ng'])) {
+            $workspace->forceFill(['owner_user_id' => $userModels['amina.yusuf@health.gov.ng']->id])->save();
+        }
+
+        foreach ($userModels as $email => $userModel) {
+            $workspace->users()->syncWithoutDetaching([
+                $userModel->id => [
+                    'role_key' => $email === 'amina.yusuf@health.gov.ng' ? 'owner' : 'member',
+                    'status' => 'active',
+                    'joined_at' => now(),
+                ],
+            ]);
+        }
+
         $team = OdkTeam::updateOrCreate(
             ['name' => 'Niger State QA Team A'],
             [
                 'uuid' => OdkTeam::where('name', 'Niger State QA Team A')->value('uuid') ?? (string) Str::uuid(),
+                'workspace_id' => $workspace->id,
                 'lead_user_id' => $userModels['zainab.ahmed@health.gov.ng']->id ?? null,
                 'description' => 'Default QA field team for pilot facility assessments.',
                 'status' => OdkTeam::STATUS_ACTIVE,

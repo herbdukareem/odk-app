@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Models\OdkRole;
 use App\Models\OdkTeam;
 use App\Models\OdkUser;
+use App\Models\OdkWorkspace;
+use App\Support\OdkWorkspaceContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -22,10 +24,7 @@ class OdkTeamAccessController
             'success' => true,
             'data' => [
                 'roles' => OdkRole::query()->orderBy('sort_order')->get(),
-                'users' => OdkUser::query()
-                    ->with(['role', 'teams:id,name,status'])
-                    ->orderBy('name')
-                    ->get(),
+                'users' => $this->usersForCurrentWorkspace(),
                 'teams' => OdkTeam::query()
                     ->with(['lead:id,name,email', 'members.role'])
                     ->withCount('members')
@@ -67,12 +66,21 @@ class OdkTeamAccessController
             'password' => Hash::make($data['password']),
         ]);
 
+        if ($workspace = $this->currentWorkspace()) {
+            $workspace->users()->attach($user->id, [
+                'role_key' => $data['role_key'] === 'admin' ? 'admin' : 'member',
+                'status' => 'active',
+                'joined_at' => now(),
+            ]);
+        }
+
         return response()->json(['success' => true, 'data' => $user->load(['role', 'teams'])], 201);
     }
 
     public function updateUser(Request $request, OdkUser $user): JsonResponse
     {
         $this->assertAdmin($request);
+        $this->assertWorkspaceUser($user);
 
         $data = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
@@ -107,6 +115,7 @@ class OdkTeamAccessController
     public function resetPassword(Request $request, OdkUser $user): JsonResponse
     {
         $this->assertAdmin($request);
+        $this->assertWorkspaceUser($user);
 
         $data = $request->validate([
             'password' => ['required', 'confirmed', Password::min(8)->letters()->mixedCase()->numbers()->symbols()],
@@ -126,7 +135,7 @@ class OdkTeamAccessController
         $this->assertAdmin($request);
 
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:255', 'unique:odk_teams,name'],
+            'name' => ['required', 'string', 'max:255', $this->teamNameRule()],
             'description' => ['nullable', 'string'],
             'lead_user_id' => ['nullable', 'integer', 'exists:odk_users,id'],
             'assigned_lga' => ['nullable', 'string', 'max:255'],
@@ -154,7 +163,7 @@ class OdkTeamAccessController
         $this->assertAdmin($request);
 
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:255', Rule::unique('odk_teams', 'name')->ignore($team->id)],
+            'name' => ['required', 'string', 'max:255', $this->teamNameRule($team->id)],
             'description' => ['nullable', 'string'],
             'lead_user_id' => ['nullable', 'integer', 'exists:odk_users,id'],
             'assigned_lga' => ['nullable', 'string', 'max:255'],
@@ -178,7 +187,12 @@ class OdkTeamAccessController
 
     private function assertAdmin(Request $request): void
     {
-        abort_unless($request->user() instanceof OdkUser && $request->user()->isAdmin(), 403, 'Only ODK admins can manage team access.');
+        abort_unless(
+            $request->user() instanceof OdkUser
+                && app(OdkWorkspaceContext::class)->userCanManage($request->user()),
+            403,
+            'Only workspace owners and admins can manage team access.'
+        );
     }
 
     private function syncMembers(OdkTeam $team, array $memberIds, ?int $leadUserId): void
@@ -189,11 +203,75 @@ class OdkTeamAccessController
             ->unique()
             ->values();
 
+        if ($workspace = $this->currentWorkspace()) {
+            $allowed = $workspace->users()
+                ->wherePivot('status', 'active')
+                ->whereIn('odk_users.id', $ids)
+                ->pluck('odk_users.id');
+            abort_unless($allowed->count() === $ids->count(), 422, 'All team members must belong to the active workspace.');
+        }
+
         $team->members()->sync($ids->mapWithKeys(fn ($id) => [
             $id => [
                 'member_role' => (int) $id === (int) $leadUserId ? 'lead' : 'member',
                 'joined_at' => now(),
             ],
         ])->all());
+    }
+
+    private function usersForCurrentWorkspace()
+    {
+        $workspace = $this->currentWorkspace();
+
+        if (!$workspace) {
+            return OdkUser::query()
+                ->with(['role', 'teams:id,name,status'])
+                ->orderBy('name')
+                ->get();
+        }
+
+        return $workspace->users()
+            ->wherePivot('status', 'active')
+            ->with(['role', 'teams:id,name,status'])
+            ->orderBy('name')
+            ->get();
+    }
+
+    private function currentWorkspace(): ?OdkWorkspace
+    {
+        $workspace = app(OdkWorkspaceContext::class)->current();
+
+        return $workspace instanceof OdkWorkspace ? $workspace : null;
+    }
+
+    private function assertWorkspaceUser(OdkUser $user): void
+    {
+        $workspace = $this->currentWorkspace();
+
+        if (!$workspace) {
+            return;
+        }
+
+        abort_unless(
+            $workspace->users()->whereKey($user->id)->wherePivot('status', 'active')->exists(),
+            404,
+            'The user is not a member of the active workspace.'
+        );
+    }
+
+    private function teamNameRule(?int $ignoreId = null)
+    {
+        $rule = Rule::unique('odk_teams', 'name');
+        $workspace = $this->currentWorkspace();
+
+        if ($workspace) {
+            $rule->where(fn ($query) => $query->where('workspace_id', $workspace->id));
+        }
+
+        if ($ignoreId) {
+            $rule->ignore($ignoreId);
+        }
+
+        return $rule;
     }
 }

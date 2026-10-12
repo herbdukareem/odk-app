@@ -112,3 +112,14 @@ export const stopOdkImpersonation = async (): Promise<OdkUser> => {
   localStorage.removeItem(ORIGINAL_TOKEN_KEY);
   return getCurrentOdkUser();
 };
+
+export const impersonateOdkWorkspaceOwner = async (workspaceId: number): Promise<ImpersonationResponse> => {
+  const currentToken = getOdkToken();
+  if (!currentToken) throw new Error('Your session has expired. Please sign in again.');
+
+  const response = await authenticatedRequest(`/api/platform/workspaces/${workspaceId}/impersonate-owner`, { method: 'POST' });
+  const payload = await response.json() as ApiEnvelope<ImpersonationResponse>;
+  localStorage.setItem(ORIGINAL_TOKEN_KEY, currentToken);
+  localStorage.setItem(TOKEN_KEY, payload.data.token);
+  return payload.data;
+};

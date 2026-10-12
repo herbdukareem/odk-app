@@ -7,6 +7,8 @@ use App\Models\AssessmentFormField;
 use App\Models\AssessmentFormFieldOption;
 use App\Models\AssessmentFormSection;
 use App\Models\AssessmentFormVersion;
+use App\Models\OdkTarget;
+use App\Services\Saas\OdkSubscriptionService;
 use App\Services\Forms\FormBuilderSnapshotService;
 use App\Services\Forms\FormRuleTester;
 use Illuminate\Http\JsonResponse;
@@ -44,12 +46,14 @@ class AssessmentFormController
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, OdkSubscriptionService $subscriptions): JsonResponse
     {
+        $subscriptions->assertCurrentWithinLimit('forms');
         $data = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'target_audience' => ['nullable', 'string', 'max:255'],
+            'target_type' => ['nullable', 'string', 'in:'.implode(',', OdkTarget::types())],
             'requires_scoring' => ['boolean'],
             'scoring_max_score' => ['nullable', 'numeric', 'min:0'],
         ]);
@@ -60,6 +64,7 @@ class AssessmentFormController
             'title' => $data['title'],
             'description' => $data['description'] ?? null,
             'target_audience' => $data['target_audience'] ?? 'Facility assessment teams',
+            'target_type' => $data['target_type'] ?? OdkTarget::TYPE_FACILITY,
             'requires_scoring' => (bool) ($data['requires_scoring'] ?? false),
             'scoring_max_score' => ($data['requires_scoring'] ?? false) ? ($data['scoring_max_score'] ?? null) : null,
             'status' => AssessmentForm::STATUS_DRAFT,
@@ -84,6 +89,7 @@ class AssessmentFormController
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'target_audience' => ['nullable', 'string', 'max:255'],
+            'target_type' => ['nullable', 'string', 'in:'.implode(',', OdkTarget::types())],
             'requires_scoring' => ['boolean'],
             'scoring_max_score' => ['nullable', 'numeric', 'min:0'],
         ]);
@@ -104,8 +110,9 @@ class AssessmentFormController
         ]);
     }
 
-    public function clone(AssessmentForm $form): JsonResponse
+    public function clone(AssessmentForm $form, OdkSubscriptionService $subscriptions): JsonResponse
     {
+        $subscriptions->assertCurrentWithinLimit('forms');
         $clone = DB::transaction(function () use ($form): AssessmentForm {
             $form->load(['sections.fields.options', 'builderRules']);
 

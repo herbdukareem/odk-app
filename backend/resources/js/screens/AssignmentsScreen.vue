@@ -1,6 +1,6 @@
 <template>
   <section class="screen-stack">
-    <AppPageHeader title="Assignment manager" subtitle="Assign assessment exercises to assessors, teams, and facilities">
+    <AppPageHeader title="Assignment manager" subtitle="Assign assessment exercises to assessors, teams, and workspace targets">
       <template #actions>
         <QdsButton icon="plus" @click="openModal()">New assignment</QdsButton>
       </template>
@@ -48,8 +48,8 @@
         </div>
         <div v-for="assignment in assignments" :key="assignment.uuid" class="qds-table__row">
           <span class="table-title">
-            {{ assignment.facility?.name || 'Unknown facility' }}
-            <small>{{ assignment.facility?.source_code || 'No facility code' }}</small>
+            {{ assignment.facility?.name || assignment.target?.name || (assignment.target_type === 'no_target' ? 'No target' : 'Unknown target') }}
+            <small>{{ assignment.facility?.source_code || assignment.target?.external_id || titleCase(assignment.target_type) }}</small>
           </span>
           <span>
             {{ assignment.exercise?.name || 'Unknown exercise' }}
@@ -84,13 +84,14 @@
         <div class="builder-heading">
           <div>
             <h2>{{ editingUuid ? 'Edit assignment' : 'New assignment' }}</h2>
-            <p>One assignment is created for each selected facility.</p>
+            <p>One assignment is created for each selected target.</p>
           </div>
           <QdsButton variant="secondary" @click="closeModal">Close</QdsButton>
         </div>
 
         <div class="assignment-form-grid">
           <QdsField v-model="draft.assessment_exercise_id" label="Exercise" :options="exerciseOptionsForSelect" :disabled="Boolean(editingUuid)" />
+          <QdsField v-model="draft.target_type" label="Target type" :options="targetTypeOptions" :disabled="Boolean(editingUuid)" />
           <div class="two-column-fields">
             <QdsField v-model="draft.assignee_type" label="Assign to" :options="assigneeTypeOptions" />
             <QdsField v-model="draft.assignee_id" label="Assignee" :options="assigneeOptionsForSelect" />
@@ -105,7 +106,7 @@
           </label>
         </div>
 
-        <div v-if="!editingUuid" class="member-picker assignment-facility-picker">
+        <div v-if="!editingUuid && draft.target_type === 'facility'" class="member-picker assignment-facility-picker">
           <div class="builder-heading">
             <div>
               <h3>Facilities</h3>
@@ -124,9 +125,17 @@
           </label>
         </div>
 
+        <div v-if="!editingUuid && draft.target_type && draft.target_type !== 'facility' && draft.target_type !== 'no_target'" class="member-picker assignment-facility-picker">
+          <div class="builder-heading"><div><h3>{{ titleCase(draft.target_type) }} targets</h3><p>{{ draft.target_ids.length }} selected</p></div><QdsSearch v-model="facilitySearch" compact placeholder="Search targets..." /></div>
+          <label v-for="target in filteredTargets" :key="target.id" class="member-choice">
+            <input type="checkbox" :checked="draft.target_ids.includes(target.id)" @change="toggleTarget(target.id)">
+            <span>{{ target.name }}</span><small>{{ target.external_id || 'No external ID' }}</small>
+          </label>
+        </div>
+
         <div v-if="editingUuid" class="submission-summary">
           <strong>{{ editingFacilityName }}</strong>
-          <span>Facility cannot be changed after assignment creation. Create a new assignment for another facility.</span>
+          <span>Target cannot be changed after assignment creation. Create a new assignment for another target.</span>
         </div>
 
         <QdsButton icon="save" block @click="saveAssignment">
@@ -170,6 +179,8 @@ const options = reactive<AssignmentOptions>({
   users: [],
   teams: [],
   facilities: [],
+  target_types: [],
+  targets: [],
 });
 const loading = ref(false);
 const notice = ref('');
@@ -192,6 +203,8 @@ const draft = reactive({
   assignee_type: 'user' as AssignmentAssigneeType,
   assignee_id: '',
   facility_ids: [] as number[],
+  target_type: 'facility',
+  target_ids: [] as number[],
   status: 'assigned',
   allow_duplicate_submission: false,
   due_at: '',
@@ -225,6 +238,8 @@ const exerciseOptionsForSelect = computed(() => [
   ...options.exercises.map((exercise) => ({ label: `${exercise.name} (${exercise.code})`, value: String(exercise.id) })),
 ]);
 
+const targetTypeOptions = computed(() => options.target_types.map((type) => ({ label: titleCase(type), value: type })));
+
 const assigneeOptionsForSelect = computed(() => {
   const source = draft.assignee_type === 'team' ? options.teams : options.users;
   return [
@@ -243,6 +258,13 @@ const filteredFacilities = computed(() => {
     facility.lga?.name,
     facility.ward?.name,
   ].some((value) => (value ?? '').toLowerCase().includes(needle)));
+});
+
+const filteredTargets = computed(() => {
+  const needle = facilitySearch.value.trim().toLowerCase();
+  return options.targets
+    .filter((target) => target.type === draft.target_type)
+    .filter((target) => !needle || [target.name, target.external_id].some((value) => (value ?? '').toLowerCase().includes(needle)));
 });
 
 const loadAssignments = async () => {
@@ -272,6 +294,8 @@ const resetDraft = () => {
     assignee_type: 'user',
     assignee_id: options.users[0] ? String(options.users[0].id) : '',
     facility_ids: [],
+    target_type: options.exercises[0]?.target_type || 'facility',
+    target_ids: [],
     status: 'assigned',
     allow_duplicate_submission: false,
     due_at: options.exercises[0]?.ends_at?.slice(0, 10) || '',
@@ -288,6 +312,8 @@ const openModal = (assignment?: AssessmentAssignment) => {
       assignee_type: assignment.assignee_type,
       assignee_id: String(assignment.assignee_type === 'team' ? assignment.odk_team_id : assignment.odk_user_id),
       facility_ids: [assignment.reference_facility_id],
+      target_type: assignment.target_type || 'facility',
+      target_ids: assignment.odk_target_id ? [assignment.odk_target_id] : [],
       status: assignment.status,
       allow_duplicate_submission: assignment.allow_duplicate_submission,
       due_at: assignment.due_at?.slice(0, 10) || '',
@@ -312,8 +338,13 @@ const saveAssignment = async () => {
     return;
   }
 
-  if (!editingUuid.value && draft.facility_ids.length === 0) {
+  if (!editingUuid.value && draft.target_type === 'facility' && draft.facility_ids.length === 0) {
     notice.value = 'Select at least one facility.';
+    return;
+  }
+
+  if (!editingUuid.value && draft.target_type !== 'facility' && draft.target_type !== 'no_target' && draft.target_ids.length === 0) {
+    notice.value = `Select at least one ${titleCase(draft.target_type).toLowerCase()} target.`;
     return;
   }
 
@@ -333,6 +364,8 @@ const saveAssignment = async () => {
         assignee_type: draft.assignee_type,
         assignee_id: Number(draft.assignee_id),
         facility_ids: draft.facility_ids,
+        target_type: draft.target_type,
+        target_ids: draft.target_ids,
         status: draft.status,
         allow_duplicate_submission: draft.allow_duplicate_submission,
         due_at: draft.due_at || null,
@@ -354,6 +387,12 @@ const toggleFacility = (facilityId: number) => {
   }
 
   draft.facility_ids.push(facilityId);
+};
+
+const toggleTarget = (targetId: number) => {
+  draft.target_ids = draft.target_ids.includes(targetId)
+    ? draft.target_ids.filter((id) => id !== targetId)
+    : [...draft.target_ids, targetId];
 };
 
 const assigneeName = (assignment: AssessmentAssignment): string => {
@@ -385,6 +424,11 @@ watch(() => draft.assignee_type, () => {
 
 watch(() => draft.assessment_exercise_id, () => {
   const exercise = options.exercises.find((item) => String(item.id) === draft.assessment_exercise_id);
+  if (!editingUuid.value) {
+    draft.target_type = exercise?.target_type || 'facility';
+    draft.facility_ids = [];
+    draft.target_ids = [];
+  }
   if (!editingUuid.value) {
     draft.due_at = exercise?.ends_at?.slice(0, 10) || draft.due_at;
   }
