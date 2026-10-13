@@ -1,7 +1,7 @@
 import NetInfo from '@react-native-community/netinfo';
 import Constants from 'expo-constants';
 import * as DocumentPicker from 'expo-document-picker';
-import { File, Paths } from 'expo-file-system';
+import { File, Paths, UploadType } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import Storage from 'expo-sqlite/kv-store';
@@ -1009,6 +1009,10 @@ export default function App() {
   }
 
   async function syncQueue(itemIds?: string[]) {
+    if (syncing) {
+      return;
+    }
+
     if (queue.length === 0) {
       setLastMessage('No pending uploads.');
       return;
@@ -1204,32 +1208,46 @@ export default function App() {
   }
 
   async function uploadAttachment(submissionUuid: string, attachment: EvidenceAttachment) {
-    const data = new FormData();
-    data.append('file', {
-      uri: attachment.uri,
-      name: attachment.name,
-      type: attachment.mimeType,
-    } as unknown as Blob);
-    data.append('field_key', attachment.fieldKey);
-    // The API uses this stable local ID to make timeout retries idempotent.
-    data.append('client_attachment_id', attachment.id);
-    data.append('type', attachment.type);
-    data.append('original_name', attachment.name);
-    data.append('captured_at', attachment.capturedAt);
-
     const token = await loadJson<string | null>(STORAGE_KEYS.authToken, null);
     const url = `${API_BASE_URL}/mobile/secure/submissions/${submissionUuid}/attachments`;
-    const response = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: data,
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    if (!response.ok) {
-      throw new Error(await responseError(response, url));
+    try {
+      // Native multipart upload is more reliable on Android for file:// and
+      // content:// URIs than building FormData through fetch. The stable local
+      // attachment ID makes retries safe if the server received the file but
+      // the client timed out before receiving the response.
+      const result = await new File(attachment.uri).upload(url, {
+        httpMethod: 'POST',
+        uploadType: UploadType.MULTIPART,
+        fieldName: 'file',
+        mimeType: attachment.mimeType || 'application/octet-stream',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Accept: 'application/json',
+        },
+        parameters: {
+          field_key: attachment.fieldKey,
+          client_attachment_id: attachment.id,
+          type: attachment.type,
+          original_name: attachment.name,
+          captured_at: attachment.capturedAt,
+        },
+        signal: controller.signal,
+      });
+
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(uploadResponseError(result.status, result.body, url));
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Evidence upload timed out after ${Math.round(REQUEST_TIMEOUT_MS / 1000)}s.`);
+      }
+
+      throw new Error(error instanceof Error ? error.message : 'Evidence upload failed.');
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -1296,12 +1314,13 @@ export default function App() {
         <ScrollView contentContainerStyle={styles.content}>
           {screen !== 'Home' ? (
             <View style={styles.header}>
-              <Brand />
+              <View style={styles.headerBrand}>
+                <Brand />
+              </View>
               <View style={styles.headerActions}>
                 <StatusPill label={online ? 'Online' : 'Offline'} tone={online ? 'success' : 'warning'} />
-                <Pressable style={styles.headerLogout} onPress={signOutMobile}>
+                <Pressable style={styles.headerLogout} onPress={signOutMobile} accessibilityLabel="Sign out">
                   <Feather name="log-out" size={14} color={colors.green800} />
-                  <Text style={styles.headerLogoutText}>Sign out</Text>
                 </Pressable>
               </View>
             </View>
@@ -1316,6 +1335,7 @@ export default function App() {
               queue={queue}
               history={history}
               lastMessage={lastMessage}
+              online={online}
               refreshing={refreshing}
               onRefresh={refreshReferenceData}
               onStart={() => setScreen('Targets')}
@@ -1430,6 +1450,7 @@ function HomeScreen({
   queue,
   history,
   lastMessage,
+  online,
   refreshing,
   onRefresh,
   onStart,
@@ -1448,6 +1469,7 @@ function HomeScreen({
   queue: QueueItem[];
   history: HistoryItem[];
   lastMessage: string;
+  online: boolean;
   refreshing: boolean;
   onRefresh: () => void;
   onStart: () => void;
@@ -1468,12 +1490,13 @@ function HomeScreen({
   return (
     <>
       <View style={styles.fieldTopBar}>
-        <DataKitLogo />
+        <View style={styles.headerBrand}>
+          <DataKitLogo />
+        </View>
         <View style={styles.headerActions}>
-          <StatusPill label="Online" tone="success" />
-          <Pressable style={styles.headerLogout} onPress={onLogout}>
+          <StatusPill label={online ? 'Online' : 'Offline'} tone={online ? 'success' : 'warning'} />
+          <Pressable style={styles.headerLogout} onPress={onLogout} accessibilityLabel="Sign out">
             <Feather name="log-out" size={14} color={colors.green800} />
-            <Text style={styles.headerLogoutText}>Sign out</Text>
           </Pressable>
         </View>
       </View>
@@ -3270,6 +3293,18 @@ async function responseError(response: Response, url: string): Promise<string> {
   return `Request failed (${response.status}) at ${url}${detail ? `: ${detail}` : '.'}`;
 }
 
+function uploadResponseError(status: number, body: string, url: string): string {
+  let detail = '';
+  try {
+    const json = JSON.parse(body) as { message?: unknown; error?: unknown };
+    detail = String(json.message ?? json.error ?? '').trim();
+  } catch {
+    detail = body.replace(/\s+/g, ' ').trim();
+  }
+
+  return `Request failed (${status}) at ${url}${detail ? `: ${detail}` : '.'}`;
+}
+
 class SyncUploadError extends Error {
   constructor(
     message: string,
@@ -3493,26 +3528,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  headerBrand: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexShrink: 0,
   },
   headerLogout: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.green100,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    borderRadius: 16,
+    width: 32,
+    height: 32,
     backgroundColor: colors.white,
-  },
-  headerLogoutText: {
-    color: colors.green800,
-    fontSize: 10,
-    fontWeight: '900',
   },
   brandRow: {
     flexDirection: 'row',
@@ -3748,7 +3782,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#f5f4ee',
-    paddingVertical: 0,
+    minHeight: 42,
+    paddingVertical: 2,
     marginBottom: 14,
   },
   workspaceSwitcher: {
