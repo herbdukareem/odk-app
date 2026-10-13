@@ -3,10 +3,12 @@
 namespace Tests\Feature;
 
 use App\Mail\OdkWorkspaceInvitationMail;
+use App\Models\AssessmentForm;
 use App\Models\OdkRole;
 use App\Models\OdkUser;
 use App\Models\OdkWorkspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -149,6 +151,45 @@ class OdkWorkspaceTest extends TestCase
         $this->withToken($firstOwner->createToken('test')->plainTextToken)
             ->postJson('/api/team-access/users/' . $secondUser->id . '/impersonate')
             ->assertNotFound();
+    }
+
+    public function test_empty_canonical_form_is_restored_by_the_ensure_command(): void
+    {
+        $workspace = OdkWorkspace::query()->firstOrCreate(
+            ['slug' => 'datakit'],
+            [
+                'uuid' => fake()->uuid(),
+                'name' => 'DataKit',
+                'type' => OdkWorkspace::TYPE_ORGANIZATION,
+                'status' => OdkWorkspace::STATUS_ACTIVE,
+            ]
+        );
+        $form = AssessmentForm::withoutGlobalScopes()
+            ->where('workspace_id', $workspace->id)
+            ->where('slug', 'nicare-qa-checklist')
+            ->first();
+
+        if (!$form) {
+            $form = AssessmentForm::create([
+                'workspace_id' => $workspace->id,
+                'uuid' => fake()->uuid(),
+                'slug' => 'nicare-qa-checklist',
+                'title' => 'DataKit QA Checklist',
+                'status' => AssessmentForm::STATUS_DRAFT,
+            ]);
+        }
+
+        $form->forceFill(['status' => AssessmentForm::STATUS_DRAFT, 'current_version_id' => null])->save();
+        $form->fields()->delete();
+        $form->sections()->delete();
+        $form->builderRules()->delete();
+        $form->versions()->delete();
+
+        Artisan::call('odk:ensure-nicare-form');
+
+        $this->assertGreaterThan(0, $form->fresh()->sections()->count());
+        $this->assertGreaterThan(0, $form->fresh()->fields()->count());
+        $this->assertSame(AssessmentForm::STATUS_PUBLISHED, $form->fresh()->status);
     }
 
     private function createWorkspaceUser(string $email, string $workspaceName): array

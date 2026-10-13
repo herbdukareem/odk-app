@@ -8,6 +8,8 @@ use App\Models\AssessmentFormFieldOption;
 use App\Models\AssessmentFormRule;
 use App\Models\AssessmentFormSection;
 use App\Models\AssessmentFormVersion;
+use App\Models\OdkWorkspace;
+use App\Support\OdkWorkspaceContext;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -16,7 +18,18 @@ class NicareQaChecklistSeeder extends Seeder
 {
     public function run(): void
     {
-        DB::transaction(function (): void {
+        $context = app(OdkWorkspaceContext::class);
+        $previousWorkspace = $context->current();
+        $workspace = $previousWorkspace ?: OdkWorkspace::query()->where('slug', 'datakit')->first();
+
+        if (!$workspace) {
+            throw new \RuntimeException('The default DataKit workspace does not exist. Run migrations before seeding the canonical form.');
+        }
+
+        $context->set($workspace);
+
+        try {
+            DB::transaction(function () use ($workspace): void {
             $sections = $this->sections();
             $fields = [
                 ...$this->metadataFields(),
@@ -38,6 +51,13 @@ class NicareQaChecklistSeeder extends Seeder
             $scoringMaxScore = $this->maxScore($scoringRules);
 
             $form = AssessmentForm::firstOrNew(['slug' => 'nicare-qa-checklist']);
+            if (!$form->exists) {
+                $form = AssessmentForm::withoutGlobalScopes()
+                    ->where('slug', 'nicare-qa-checklist')
+                    ->whereNull('workspace_id')
+                    ->first() ?? $form;
+                $form->workspace_id ??= $workspace->id;
+            }
             if (!$form->exists) {
                 $form->uuid = (string) Str::uuid();
             }
@@ -96,7 +116,10 @@ class NicareQaChecklistSeeder extends Seeder
                 'status' => AssessmentForm::STATUS_PUBLISHED,
                 'published_at' => $form->published_at ?? now(),
             ])->save();
-        });
+            });
+        } finally {
+            $context->set($previousWorkspace);
+        }
     }
 
     private function syncBuilderRecords(

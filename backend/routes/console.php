@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Artisan;
 use App\Models\AssessmentForm;
 use App\Models\OdkPlan;
+use App\Models\OdkWorkspace;
 use Database\Seeders\NicareQaChecklistSeeder;
 use Database\Seeders\OdkSaasPlanSeeder;
 use App\Services\Integration\NicareReferenceSyncService;
@@ -53,14 +54,28 @@ Artisan::command('nicare:sync-reference-data', function (NicareReferenceSyncServ
 })->purpose('Sync facility and programme reference data from the reference system');
 
 Artisan::command('odk:ensure-nicare-form {--force : Re-sync the canonical DataKit QA Checklist definition}', function (): int {
-    $formExists = AssessmentForm::query()
-        ->where('slug', 'nicare-qa-checklist')
-        ->exists();
+    $workspace = OdkWorkspace::query()->where('slug', 'datakit')->first();
+    if (!$workspace) {
+        $this->error('The default DataKit workspace does not exist. Run migrations before seeding the canonical form.');
 
-    if ($formExists && !$this->option('force')) {
+        return self::FAILURE;
+    }
+
+    $form = AssessmentForm::forWorkspace($workspace->id)
+        ->where('slug', 'nicare-qa-checklist')
+        ->withCount(['sections', 'fields'])
+        ->first();
+    $formExists = $form !== null;
+    $formIsEmpty = $form && ((int) $form->sections_count === 0 || (int) $form->fields_count === 0);
+
+    if ($formExists && !$formIsEmpty && !$this->option('force')) {
         $this->info('DataKit QA Checklist already exists; leaving the production form unchanged.');
 
         return self::SUCCESS;
+    }
+
+    if ($formIsEmpty && !$this->option('force')) {
+        $this->info('DataKit QA Checklist is empty; restoring the canonical QA checklist definition.');
     }
 
     $this->call('db:seed', [
