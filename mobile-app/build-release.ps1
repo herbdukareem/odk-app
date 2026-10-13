@@ -1,24 +1,12 @@
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = (Resolve-Path $PSScriptRoot).Path
-$shortRoot = "C:\datakit-mobile-build-$PID"
 $locationPushed = $false
-$nativeBuildDirectory = Join-Path $projectRoot 'android\app\.cxx'
-
-if (Test-Path -LiteralPath $shortRoot) {
-    throw "$shortRoot already exists. Remove the temporary junction or choose another build path."
-}
-
-New-Item -ItemType Junction -Path $shortRoot -Target $projectRoot | Out-Null
+$previousNodeEnv = $env:NODE_ENV
 
 try {
-    # Remove native metadata generated through an older temporary path.
-    if (Test-Path -LiteralPath $nativeBuildDirectory) {
-        cmd /c "rmdir /s /q `"$nativeBuildDirectory`"" | Out-Null
-    }
-
     $env:NODE_ENV = 'production'
-    Push-Location (Join-Path $shortRoot 'android')
+    Push-Location (Join-Path $projectRoot 'android')
     $locationPushed = $true
 
     & .\gradlew.bat clean assembleRelease -PreactNativeArchitectures=arm64-v8a --max-workers=2 --no-daemon
@@ -30,8 +18,10 @@ try {
         Pop-Location
     }
 
-    if (Test-Path -LiteralPath $shortRoot) {
-        cmd /c "rmdir $shortRoot" | Out-Null
+    if ($null -eq $previousNodeEnv) {
+        Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue
+    } else {
+        $env:NODE_ENV = $previousNodeEnv
     }
 }
 

@@ -3,6 +3,7 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+def nativeBuildStagingDirectory = file("${System.getenv('SystemDrive') ?: 'C:'}/c")
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -87,6 +88,12 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
+    externalNativeBuild {
+        cmake {
+            buildStagingDirectory nativeBuildStagingDirectory
+        }
+    }
+
     namespace 'ng.gov.nicare.qa'
     defaultConfig {
         applicationId 'ng.gov.nicare.qa'
@@ -96,6 +103,13 @@ android {
         versionName "0.1.1"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+
+        // Keep generated CMake object paths below Ninja's Windows path limit.
+        externalNativeBuild {
+            cmake {
+                arguments "-DCMAKE_OBJECT_PATH_MAX=250"
+            }
+        }
     }
     signingConfigs {
         debug {
