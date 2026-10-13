@@ -175,6 +175,28 @@
                 <span>{{ rule.label }}</span>
               </label>
             </div>
+            <div class="validation-range">
+              <div>
+                <h4>Specific limits</h4>
+                <p>For text fields, limits count characters. For number fields, they constrain the value.</p>
+              </div>
+              <div class="two-column-fields">
+                <QdsField
+                  v-model="fieldDraft.minimum_limit"
+                  label="Custom minimum"
+                  type="number"
+                  min="0"
+                  @update:model-value="fieldDraft.custom_minimum_active = true"
+                />
+                <QdsField
+                  v-model="fieldDraft.maximum_limit"
+                  label="Custom maximum"
+                  type="number"
+                  min="0"
+                  @update:model-value="fieldDraft.custom_maximum_active = true"
+                />
+              </div>
+            </div>
             <div class="inline-adder">
               <QdsField v-model="customValidationRule" label="Custom rule" />
               <QdsButton variant="secondary" @click="addCustomValidationRule">Add</QdsButton>
@@ -460,6 +482,10 @@ const emptyFieldDraft = () => ({
   readonly: false,
   scorable: false,
   validation_rules: [] as string[],
+  minimum_limit: '',
+  maximum_limit: '',
+  custom_minimum_active: false,
+  custom_maximum_active: false,
   options: [] as OptionDraft[],
   show_when_enabled: false,
   show_when_field: '',
@@ -650,6 +676,26 @@ const optionDraftsToPayload = (): BuilderOption[] => {
 
 const readableRule = (value: string) => validationRuleChoices.find((rule) => rule.value === value)?.label ?? value;
 
+const validationRulesForPayload = (): string[] => {
+  const rules = [...fieldDraft.validation_rules];
+
+  if (fieldDraft.custom_minimum_active) {
+    const minimum = fieldDraft.minimum_limit.trim();
+    const withoutMinimum = rules.filter((rule) => !rule.startsWith('min:'));
+    if (minimum !== '') withoutMinimum.push(`min:${minimum}`);
+    rules.splice(0, rules.length, ...withoutMinimum);
+  }
+
+  if (fieldDraft.custom_maximum_active) {
+    const maximum = fieldDraft.maximum_limit.trim();
+    const withoutMaximum = rules.filter((rule) => !rule.startsWith('max:'));
+    if (maximum !== '') withoutMaximum.push(`max:${maximum}`);
+    rules.splice(0, rules.length, ...withoutMaximum);
+  }
+
+  return Array.from(new Set(rules));
+};
+
 const toggleValidationRule = (value: string) => {
   if (fieldDraft.validation_rules.includes(value)) {
     removeValidationRule(value);
@@ -661,6 +707,16 @@ const toggleValidationRule = (value: string) => {
 
 const removeValidationRule = (value: string) => {
   fieldDraft.validation_rules = fieldDraft.validation_rules.filter((rule) => rule !== value);
+
+  if (value.startsWith('min:') && fieldDraft.custom_minimum_active) {
+    fieldDraft.custom_minimum_active = false;
+    fieldDraft.minimum_limit = '';
+  }
+
+  if (value.startsWith('max:') && fieldDraft.custom_maximum_active) {
+    fieldDraft.custom_maximum_active = false;
+    fieldDraft.maximum_limit = '';
+  }
 };
 
 const addCustomValidationRule = () => {
@@ -767,6 +823,12 @@ const startAddField = () => {
 };
 
 const editField = (field: BuilderField) => {
+  const validationRules = [...(field.validation_rules ?? [])];
+  const minimumRule = validationRules.find((rule) => rule.startsWith('min:'));
+  const maximumRule = validationRules.find((rule) => rule.startsWith('max:'));
+  const presetMinimums = new Set(['0', '1']);
+  const presetMaximums = new Set(['30', '255']);
+
   Object.assign(fieldDraft, {
     id: field.id,
     label: field.label,
@@ -776,7 +838,11 @@ const editField = (field: BuilderField) => {
     required: Boolean(field.required),
     readonly: Boolean(field.readonly),
     scorable: isFieldScorable(field),
-    validation_rules: [...(field.validation_rules ?? [])],
+    validation_rules: validationRules,
+    minimum_limit: minimumRule && !presetMinimums.has(minimumRule.slice(4)) ? minimumRule.slice(4) : '',
+    maximum_limit: maximumRule && !presetMaximums.has(maximumRule.slice(4)) ? maximumRule.slice(4) : '',
+    custom_minimum_active: Boolean(minimumRule && !presetMinimums.has(minimumRule.slice(4))),
+    custom_maximum_active: Boolean(maximumRule && !presetMaximums.has(maximumRule.slice(4))),
     options: (field.options ?? []).map((option) => toOptionDraft(option)),
     show_when_enabled: Boolean(field.display_logic?.field),
     show_when_field: String(field.display_logic?.field ?? ''),
@@ -801,7 +867,7 @@ const saveField = async () => {
     group: fieldDraft.group || null,
     required: fieldDraft.required,
     readonly: fieldDraft.readonly,
-    validation_rules: [...fieldDraft.validation_rules],
+    validation_rules: validationRulesForPayload(),
     display_logic: fieldDraft.show_when_enabled && fieldDraft.show_when_field
       ? {
           field: fieldDraft.show_when_field,

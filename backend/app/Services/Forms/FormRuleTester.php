@@ -110,6 +110,8 @@ class FormRuleTester
             return null;
         }
 
+        $textValue = is_string($value) ? $value : (string) $value;
+
         if ($rule === 'integer' && filter_var($value, FILTER_VALIDATE_INT) === false) {
             return $field['label'].' must be a whole number.';
         }
@@ -118,21 +120,36 @@ class FormRuleTester
             return $field['label'].' must be numeric.';
         }
 
-        if (str_starts_with($rule, 'min:') && is_numeric($value)) {
+        if (str_starts_with($rule, 'min:')) {
             $min = (float) substr($rule, 4);
-            if ((float) $value < $min) {
-                return $field['label'].' must be at least '.$min.'.';
+            if ($this->isNumericField($field) && is_numeric($value)) {
+                if ((float) $value < $min) {
+                    return $field['label'].' must be at least '.$min.'.';
+                }
+            } elseif (!$this->isNumericField($field) && strlen($textValue) < $min) {
+                return $field['label'].' must be at least '.$min.' characters.';
             }
         }
 
-        if (str_starts_with($rule, 'max:') && is_string($value)) {
-            $max = (int) substr($rule, 4);
-            if (strlen($value) > $max) {
+        if (str_starts_with($rule, 'max:')) {
+            $max = (float) substr($rule, 4);
+            if ($this->isNumericField($field) && is_numeric($value)) {
+                if ((float) $value > $max) {
+                    return $field['label'].' must be '.$max.' or less.';
+                }
+            } elseif (!$this->isNumericField($field) && strlen($textValue) > $max) {
                 return $field['label'].' must be '.$max.' characters or fewer.';
             }
         }
 
         return null;
+    }
+
+    private function isNumericField(array $field): bool
+    {
+        return in_array($field['type'] ?? null, ['number', 'currency'], true)
+            || in_array('numeric', $field['rules'] ?? [], true)
+            || in_array('integer', $field['rules'] ?? [], true);
     }
 
     private function score(array $scoringRules, array $answers): array
@@ -188,7 +205,7 @@ class FormRuleTester
 
         $errors = [];
         foreach ($field['count_rules'] ?? ['integer', 'min:1'] as $rule) {
-            $message = $this->checkRule((string) $rule, ['label' => $label], $count);
+            $message = $this->checkRule((string) $rule, ['label' => $label, 'type' => 'number'], $count);
             if ($message !== null) {
                 $errors[] = $message;
             }
