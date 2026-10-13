@@ -1,4 +1,5 @@
 import { authenticatedRequest } from './auth';
+import { trackApiRequest } from './requestState';
 import type { OdkUser, OdkWorkspaceSummary } from './teamAccess';
 
 type ApiEnvelope<T> = {
@@ -48,11 +49,11 @@ export const registerOdkWorkspace = async (input: WorkspaceRegistration): Promis
   user: OdkUser;
   workspace: Workspace;
 }> => {
-  const response = await fetch('/api/auth/register', {
+  const response = await trackApiRequest(() => fetch('/api/auth/register', {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
-  });
+  }));
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { message?: string; errors?: Record<string, string[]> };

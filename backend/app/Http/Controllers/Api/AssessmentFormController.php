@@ -352,15 +352,43 @@ class AssessmentFormController
 
     private function replaceOptions(AssessmentFormField $field, array $options): void
     {
-        $field->options()->delete();
-        foreach (array_values($options) as $index => $option) {
+        // Options are soft-deletable, but their field/value pair is permanently
+        // unique. Remove the old rows before recreating the current snapshot.
+        AssessmentFormFieldOption::withTrashed()
+            ->where('assessment_form_field_id', $field->id)
+            ->forceDelete();
+
+        $seenValues = [];
+        $normalizedOptions = [];
+
+        foreach ($options as $option) {
+            $label = trim((string) ($option['label'] ?? ''));
+            $value = trim((string) ($option['value'] ?? ''));
+            $value = $value !== '' ? $value : Str::slug($label, '_');
+            $valueKey = strtolower($value);
+
+            if ($label === '' || $value === '' || isset($seenValues[$valueKey])) {
+                continue;
+            }
+
+            $seenValues[$valueKey] = true;
+            $normalizedOptions[] = [
+                'label' => $label,
+                'value' => $value,
+                'score' => $option['score'] ?? null,
+                'requires_review' => (bool) ($option['requires_review'] ?? $option['needs_review'] ?? false),
+                'settings' => $option['settings'] ?? null,
+            ];
+        }
+
+        foreach ($normalizedOptions as $index => $option) {
             AssessmentFormFieldOption::create([
                 'assessment_form_field_id' => $field->id,
                 'label' => $option['label'],
-                'value' => $option['value'] ?? Str::slug($option['label'], '_'),
+                'value' => $option['value'],
                 'score' => $option['score'] ?? null,
                 'sort_order' => $index + 1,
-                'requires_review' => (bool) ($option['requires_review'] ?? $option['needs_review'] ?? false),
+                'requires_review' => $option['requires_review'],
                 'settings' => $option['settings'] ?? null,
             ]);
         }

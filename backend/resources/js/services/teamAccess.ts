@@ -34,6 +34,7 @@ export type OdkUser = {
   status: string;
   assigned_lga?: string | null;
   assigned_ward?: string | null;
+  is_platform_admin?: boolean;
   role?: OdkRole | null;
   workspaces?: OdkWorkspaceSummary[];
   teams?: Array<Pick<OdkTeam, 'id' | 'name' | 'status'>>;

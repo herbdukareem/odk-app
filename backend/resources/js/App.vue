@@ -1,4 +1,9 @@
 <template>
+  <div v-if="isApiLoading" class="global-request-status" role="status" aria-live="polite">
+    <span class="global-request-status__spinner" aria-hidden="true"></span>
+    <span>Loading</span>
+  </div>
+
   <LandingScreen v-if="!signedIn && landingVisible" @sign-in="openLogin" />
   <RegisterScreen v-else-if="!signedIn && registerVisible" @registered="handleRegistered" @sign-in="openLogin" />
   <AuthScreen v-else-if="!signedIn" @signed-in="handleSignedIn" @register="openRegister" />
@@ -74,6 +79,7 @@ import {
   type Workspace,
 } from './services/workspaces';
 import type { OdkWorkspaceSummary } from './services/teamAccess';
+import { isApiLoading } from './services/requestState';
 
 type NavLabel = 'Dashboard' | 'My assessments' | 'Forms' | 'Exercises' | 'Assignment Manager' | 'Submissions' | 'Targets' | 'Facilities' | 'Reports' | 'Integrations' | 'Team' | 'Settings' | 'Platform admin';
 type AppView = 'dashboard' | 'my-assessments' | 'forms' | 'form-settings' | 'exercises' | 'assignments' | 'submissions' | 'targets' | 'facilities' | 'reports' | 'team' | 'workspace-settings' | 'mobile-sync' | 'platform' | 'generic';
@@ -326,12 +332,21 @@ onMounted(async () => {
   syncRoute();
   window.addEventListener('popstate', syncRoute);
 
-  if (!getOdkToken()) {
+  const startupToken = getOdkToken();
+  if (!startupToken) {
     return;
   }
 
   try {
-    currentUser.value = await getCurrentOdkUser();
+    const validatedUser = await getCurrentOdkUser();
+
+    // A login can complete while this startup validation is in flight. Do not
+    // let an older session response overwrite or clear the newer token.
+    if (getOdkToken() !== startupToken) {
+      return;
+    }
+
+    currentUser.value = validatedUser;
     availableWorkspaces.value = currentUser.value.workspaces ?? [];
     const hasPendingInvitation = new URLSearchParams(window.location.search).has('invite');
     if (hasPendingInvitation) {
@@ -345,6 +360,10 @@ onMounted(async () => {
       navigate('/dashboard', true);
     }
   } catch {
+    if (getOdkToken() !== startupToken) {
+      return;
+    }
+
     clearOdkSession();
     signedIn.value = false;
     navigate('/login', true);

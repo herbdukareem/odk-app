@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Mail\OdkWorkspaceInvitationMail;
 use App\Models\AssessmentForm;
+use App\Models\AssessmentFormFieldOption;
 use App\Models\OdkRole;
 use App\Models\OdkUser;
 use App\Models\OdkWorkspace;
@@ -190,6 +191,52 @@ class OdkWorkspaceTest extends TestCase
         $this->assertGreaterThan(0, $form->fresh()->sections()->count());
         $this->assertGreaterThan(0, $form->fresh()->fields()->count());
         $this->assertSame(AssessmentForm::STATUS_PUBLISHED, $form->fresh()->status);
+    }
+
+    public function test_form_field_options_can_be_replaced_without_duplicate_value_errors(): void
+    {
+        [$user] = $this->createWorkspaceUser('builder@example.com', 'Builder workspace');
+        $token = $user->createToken('test')->plainTextToken;
+
+        $form = $this->withToken($token)->postJson('/api/forms', [
+            'title' => 'Builder form',
+            'requires_scoring' => false,
+        ])->assertCreated()->json('data');
+
+        $section = $this->withToken($token)->postJson('/api/forms/' . $form['slug'] . '/sections', [
+            'label' => 'Questions',
+            'key' => 'questions',
+        ])->assertCreated()->json('data');
+
+        $field = $this->withToken($token)->postJson('/api/forms/' . $form['slug'] . '/fields', [
+            'label' => 'Available?',
+            'type' => 'yes_no',
+            'section_key' => $section['key'],
+            'options' => [
+                ['label' => 'Yes', 'value' => 'yes'],
+                ['label' => 'Yes again', 'value' => 'yes'],
+                ['label' => 'No', 'value' => 'no'],
+            ],
+        ])->assertCreated()->json('data');
+
+        $this->assertCount(2, $field['options']);
+
+        $this->withToken($token)->patchJson('/api/forms/' . $form['slug'] . '/fields/' . $field['id'], [
+            'label' => 'Available?',
+            'type' => 'yes_no',
+            'section_key' => $section['key'],
+            'options' => [
+                ['label' => 'Yes', 'value' => 'yes'],
+                ['label' => 'No', 'value' => 'no'],
+            ],
+        ])->assertOk()->assertJsonCount(2, 'data.options');
+
+        $this->assertSame(
+            2,
+            AssessmentFormFieldOption::withTrashed()
+                ->where('assessment_form_field_id', $field['id'])
+                ->count()
+        );
     }
 
     private function createWorkspaceUser(string $email, string $workspaceName): array

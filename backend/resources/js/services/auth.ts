@@ -1,4 +1,5 @@
 import type { OdkUser } from './teamAccess';
+import { trackApiRequest } from './requestState';
 
 export type { OdkUser } from './teamAccess';
 
@@ -48,7 +49,7 @@ export const authenticatedRequest = async (url: string, init: RequestInit = {}):
   const token = getOdkToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
-  const response = await fetch(url, { ...init, headers });
+  const response = await trackApiRequest(() => fetch(url, { ...init, headers }));
   if (!response.ok) {
     throw new Error(await readError(response));
   }
@@ -57,11 +58,11 @@ export const authenticatedRequest = async (url: string, init: RequestInit = {}):
 };
 
 export const loginOdkUser = async (email: string, password: string): Promise<OdkUser> => {
-  const response = await fetch('/api/auth/login', {
+  const response = await trackApiRequest(() => fetch('/api/auth/login', {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify({ email, password }),
-  });
+  }));
 
   if (!response.ok) throw new Error(await readError(response));
 

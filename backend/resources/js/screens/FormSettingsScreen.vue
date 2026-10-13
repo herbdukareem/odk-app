@@ -624,8 +624,11 @@ const toOptionDraft = (option?: Partial<BuilderOption>): OptionDraft => ({
   requires_review: Boolean(option?.requires_review ?? option?.needs_review),
 });
 
-const optionDraftsToPayload = (): BuilderOption[] => fieldDraft.options
-  .map((option) => {
+const optionDraftsToPayload = (): BuilderOption[] => {
+  const seenValues = new Set<string>();
+
+  return fieldDraft.options
+    .map((option) => {
     const scoreText = String(option.score_text ?? '').trim();
     const score = requiresScoring.value && fieldDraft.scorable && scoreText !== '' ? Number(scoreText) : null;
 
@@ -635,8 +638,15 @@ const optionDraftsToPayload = (): BuilderOption[] => fieldDraft.options
       score,
       requires_review: Boolean(option.requires_review),
     };
-  })
-  .filter((option) => option.label !== '' && option.value !== '');
+    })
+    .filter((option) => option.label !== '' && option.value !== '')
+    .filter((option) => {
+      const valueKey = option.value.toLowerCase();
+      if (seenValues.has(valueKey)) return false;
+      seenValues.add(valueKey);
+      return true;
+    });
+};
 
 const readableRule = (value: string) => validationRuleChoices.find((rule) => rule.value === value)?.label ?? value;
 

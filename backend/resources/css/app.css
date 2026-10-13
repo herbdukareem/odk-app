@@ -42,6 +42,43 @@ body {
   background: var(--qds-page);
 }
 
+.global-request-status {
+  position: fixed;
+  z-index: 10000;
+  top: 12px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 12px;
+  color: var(--qds-green-900);
+  border: 1px solid var(--qds-green-100);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--qds-shadow-sm);
+  font-size: 11px;
+  font-weight: 900;
+  transform: translateX(-50%);
+}
+
+.global-request-status__spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--qds-green-100);
+  border-top-color: var(--qds-green-700);
+  border-radius: 50%;
+  animation: qds-request-spin 0.75s linear infinite;
+}
+
+@keyframes qds-request-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .global-request-status__spinner { animation: none; }
+}
+
 button,
 input,
 select,
