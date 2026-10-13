@@ -110,7 +110,15 @@ class FormRuleTester
             return null;
         }
 
-        $textValue = is_string($value) ? $value : (string) $value;
+        if (is_array($value)) {
+            return $this->checkArrayRule($rule, $field, $value);
+        }
+
+        $textValue = is_scalar($value) ? (string) $value : '';
+
+        if ($rule === 'string' && !is_string($value)) {
+            return $field['label'].' must be text.';
+        }
 
         if ($rule === 'integer' && filter_var($value, FILTER_VALIDATE_INT) === false) {
             return $field['label'].' must be a whole number.';
@@ -139,6 +147,37 @@ class FormRuleTester
                 }
             } elseif (!$this->isNumericField($field) && strlen($textValue) > $max) {
                 return $field['label'].' must be '.$max.' characters or fewer.';
+            }
+        }
+
+        return null;
+    }
+
+    private function checkArrayRule(string $rule, array $field, array $value): ?string
+    {
+        if ($rule === 'array') {
+            return null;
+        }
+
+        if ($rule === 'string') {
+            return $field['label'].' must be text.';
+        }
+
+        if ($rule === 'integer' || $rule === 'numeric') {
+            return $field['label'].' must be a single number.';
+        }
+
+        if (str_starts_with($rule, 'min:')) {
+            $min = (float) substr($rule, 4);
+            if (count($value) < $min) {
+                return $field['label'].' must contain at least '.$min.' items.';
+            }
+        }
+
+        if (str_starts_with($rule, 'max:')) {
+            $max = (float) substr($rule, 4);
+            if (count($value) > $max) {
+                return $field['label'].' must contain '.$max.' items or fewer.';
             }
         }
 

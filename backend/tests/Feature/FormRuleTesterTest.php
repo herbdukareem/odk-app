@@ -43,4 +43,25 @@ class FormRuleTesterTest extends TestCase
         $this->assertTrue($tester->testVersion($version, ['age' => 11])['valid']);
         $this->assertFalse($tester->testVersion($version, ['age' => 12])['valid']);
     }
+
+    public function test_structured_array_answers_are_validated_without_string_conversion_errors(): void
+    {
+        $version = new AssessmentFormVersion([
+            'fields' => [[
+                'key' => 'gps_coordinates',
+                'label' => 'GPS coordinates',
+                'type' => 'gps',
+                'rules' => ['array', 'min:2', 'max:3'],
+            ]],
+            'scoring_rules' => [],
+        ]);
+        $tester = app(FormRuleTester::class);
+
+        $this->assertTrue($tester->testVersion($version, [
+            'gps_coordinates' => ['latitude' => 9.6, 'longitude' => 6.5],
+        ])['valid']);
+        $this->assertFalse($tester->testVersion($version, [
+            'gps_coordinates' => ['latitude' => 9.6],
+        ])['valid']);
+    }
 }
