@@ -189,19 +189,19 @@
 
           <div v-if="selectedSubmission.attachments?.length" class="evidence-list">
             <h3>Evidence</h3>
-            <a
+            <button
               v-for="attachment in selectedSubmission.attachments"
               :key="String(attachment.id ?? attachment.download_url ?? attachment.original_name ?? 'evidence')"
-              :href="attachment.download_url ?? '#'"
-              target="_blank"
-              rel="noreferrer"
+              type="button"
+              :disabled="downloadingAttachmentId === Number(attachment.id)"
+              @click="openEvidence(attachment.download_url, Number(attachment.id))"
             >
               <AppIcon name="upload" />
               <span>
                 <strong>{{ attachment.original_name || attachment.type || 'Evidence file' }}</strong>
-                <small>{{ attachment.field_key || 'general' }} | {{ formatBytes(attachment.size_bytes) }}</small>
+                <small>{{ downloadingAttachmentId === Number(attachment.id) ? 'Opening...' : (attachment.field_key || 'general') + ' | ' + formatBytes(attachment.size_bytes) }}</small>
               </span>
-            </a>
+            </button>
           </div>
 
           <div v-if="selectedSubmission.sync_events?.length" class="review-block">
@@ -243,6 +243,7 @@ import QdsCard from '../components/qds/QdsCard.vue';
 import QdsCheckbox from '../components/qds/QdsCheckbox.vue';
 import QdsField from '../components/qds/QdsField.vue';
 import QdsSearch from '../components/qds/QdsSearch.vue';
+import { authenticatedRequest } from '../services/auth';
 import { loadExerciseReport, type ReportExerciseOption } from '../services/reports';
 import {
   type AssessmentSubmission,
@@ -260,6 +261,7 @@ const selectedUuid = ref('');
 const reviewModalOpen = ref(false);
 const reviewNote = ref('');
 const notice = ref('');
+const downloadingAttachmentId = ref<number | null>(null);
 const filters = reactive({
   exercise_id: '',
   status: '',
@@ -406,6 +408,31 @@ const reviewNext = async () => {
 
 const closeReviewModal = () => {
   reviewModalOpen.value = false;
+};
+
+const openEvidence = async (url: string | null | undefined, attachmentId: number) => {
+  if (!url || downloadingAttachmentId.value !== null) return;
+
+  downloadingAttachmentId.value = attachmentId;
+  const popup = window.open('', '_blank');
+
+  try {
+    const response = await authenticatedRequest(url, { method: 'GET' });
+    const objectUrl = URL.createObjectURL(await response.blob());
+
+    if (popup) {
+      popup.location.href = objectUrl;
+    } else {
+      window.open(objectUrl, '_blank', 'noopener,noreferrer');
+    }
+
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    popup?.close();
+    notice.value = error instanceof Error ? error.message : 'Unable to open this evidence file.';
+  } finally {
+    downloadingAttachmentId.value = null;
+  }
 };
 
 const submitReview = async (action: 'start_review' | 'return' | 'approve') => {
@@ -858,16 +885,26 @@ onMounted(async () => {
   background: #fff;
 }
 
-.evidence-list a {
+.evidence-list a,
+.evidence-list button {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 10px;
   border: 1px solid var(--qds-slate-200);
   border-radius: 8px;
   color: var(--qds-slate-950);
   background: var(--qds-slate-50);
   text-decoration: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.evidence-list button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .evidence-list .app-icon {
