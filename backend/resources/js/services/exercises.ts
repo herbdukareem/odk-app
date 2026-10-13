@@ -1,3 +1,5 @@
+import { authenticatedRequest } from './auth';
+
 export type ExerciseStatus = 'draft' | 'scheduled' | 'active' | 'closed' | 'archived' | string;
 export type ExercisePeriodType = 'quarter' | 'month' | 'custom';
 
@@ -27,6 +29,7 @@ export type AssessmentExercise = {
   assessment_form_id: number;
   assessment_form_version_id: number;
   status: ExerciseStatus;
+  target_type?: string;
   form?: {
     id: number;
     slug: string;
@@ -52,6 +55,7 @@ export type ExercisePayload = {
   assessment_form_id: number;
   assessment_form_version_id: number;
   status: ExerciseStatus;
+  target_type?: string;
 };
 
 export type ExercisesPayload = {
@@ -78,13 +82,13 @@ type ApiEnvelope<T> = {
 };
 
 const readJson = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const response = await authenticatedRequest(url, { method: 'GET' });
   if (!response.ok) throw new Error(`Request failed with status ${response.status}.`);
   return response.json() as Promise<T>;
 };
 
 const writeJson = async <T>(url: string, method: 'POST' | 'PATCH', body: unknown): Promise<T> => {
-  const response = await fetch(url, {
+  const response = await authenticatedRequest(url, {
     method,
     headers: {
       Accept: 'application/json',

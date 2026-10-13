@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Models\AssessmentAssignment;
 use App\Models\AssessmentExercise;
 use App\Models\AssessmentSubmission;
+use App\Models\OdkTarget;
 use App\Services\Submissions\AssessmentSubmissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,7 @@ class OnlineAssessmentController
                 'facility:id,source_id,source_code,name,reference_lga_id,reference_ward_id',
                 'facility.lga:id,name',
                 'facility.ward:id,name',
+                'target:id,uuid,type,external_id,name,description,metadata',
                 'submissions' => fn ($query) => $query->latest('updated_at'),
             ])
             ->whereIn('status', [
@@ -53,6 +55,7 @@ class OnlineAssessmentController
                         ->whereHas('facility', fn ($facilityQuery) => $facilityQuery
                             ->where('name', 'like', "%{$search}%")
                             ->orWhere('source_code', 'like', "%{$search}%"))
+                        ->orWhereHas('target', fn ($targetQuery) => $targetQuery->where('name', 'like', "%{$search}%"))
                         ->orWhereHas('exercise', fn ($exerciseQuery) => $exerciseQuery
                             ->where('name', 'like', "%{$search}%")
                             ->orWhere('code', 'like', "%{$search}%"));
@@ -79,6 +82,7 @@ class OnlineAssessmentController
             'exercise.formVersion',
             'facility.lga:id,name',
             'facility.ward:id,name',
+            'target:id,uuid,type,external_id,name,description,metadata',
             'submissions' => fn ($query) => $query->latest('updated_at'),
         ]);
 
@@ -116,26 +120,43 @@ class OnlineAssessmentController
         );
 
         $facility = $assignment->facility()->with(['lga', 'ward'])->first();
-        abort_unless($facility, 422, 'The assigned facility is unavailable.');
+        $target = $assignment->target;
+        $targetType = $assignment->target_type ?: ($facility ? OdkTarget::TYPE_FACILITY : OdkTarget::TYPE_NONE);
 
-        $payload['answers'] = array_replace($payload['answers'], [
-            'facility_id' => $facility->source_id,
-            'facility_name' => $facility->name,
-            'lga_id' => $facility->lga?->source_id,
-            'ward_id' => $facility->ward?->source_id,
-        ]);
-        $payload['facility_id'] = $facility->source_id;
-        $payload['facility'] = [
-            'id' => $facility->source_id,
-            'local_id' => $facility->id,
-            'code' => $facility->source_code,
-            'name' => $facility->name,
-            'type' => $facility->type,
-            'lga_id' => $facility->lga?->source_id,
-            'lga' => $facility->lga?->name,
-            'ward_id' => $facility->ward?->source_id,
-            'ward' => $facility->ward?->name,
-        ];
+        if ($facility) {
+            $payload['answers'] = array_replace($payload['answers'], [
+                'facility_id' => $facility->source_id,
+                'facility_name' => $facility->name,
+                'lga_id' => $facility->lga?->source_id,
+                'ward_id' => $facility->ward?->source_id,
+            ]);
+            $payload['facility_id'] = $facility->source_id;
+            $payload['facility'] = [
+                'id' => $facility->source_id,
+                'local_id' => $facility->id,
+                'code' => $facility->source_code,
+                'name' => $facility->name,
+                'type' => $facility->type,
+                'lga_id' => $facility->lga?->source_id,
+                'lga' => $facility->lga?->name,
+                'ward_id' => $facility->ward?->source_id,
+                'ward' => $facility->ward?->name,
+            ];
+        } elseif ($target) {
+            $payload['answers'] = array_replace($payload['answers'], [
+                'target_id' => $target->external_id ?: $target->uuid,
+                'target_name' => $target->name,
+            ]);
+            $payload['target'] = [
+                'id' => $target->uuid,
+                'local_id' => $target->id,
+                'type' => $target->type,
+                'external_id' => $target->external_id,
+                'name' => $target->name,
+                'description' => $target->description,
+                'metadata' => $target->metadata,
+            ];
+        }
 
         $payload += [
             'assignment_uuid' => $assignment->uuid,
@@ -144,7 +165,8 @@ class OnlineAssessmentController
             'assessment_exercise_uuid' => $assignment->exercise->uuid,
             'form_slug' => $assignment->exercise->form->slug,
             'form_version_id' => $assignment->exercise->formVersion->id,
-            'facility_id' => $facility->source_id,
+            'target_type' => $targetType,
+            'target_id' => $target?->id,
         ];
 
         return response()->json([
@@ -198,6 +220,16 @@ class OnlineAssessmentController
             'status' => $assignment->status,
             'can_submit' => $canSubmit,
             'allow_duplicate_submission' => $assignment->allow_duplicate_submission,
+            'target_type' => $assignment->target_type ?: ($assignment->facility ? OdkTarget::TYPE_FACILITY : OdkTarget::TYPE_NONE),
+            'target' => $assignment->target ? [
+                'id' => $assignment->target->uuid,
+                'local_id' => $assignment->target->id,
+                'type' => $assignment->target->type,
+                'external_id' => $assignment->target->external_id,
+                'name' => $assignment->target->name,
+                'description' => $assignment->target->description,
+                'metadata' => $assignment->target->metadata,
+            ] : null,
             'assigned_at' => $assignment->assigned_at?->toISOString(),
             'due_at' => $assignment->due_at?->toDateString(),
             'exercise' => $exercise ? [

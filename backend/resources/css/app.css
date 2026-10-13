@@ -573,10 +573,31 @@ h3 {
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto;
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.workspace-switcher {
+  display: grid;
+  gap: 2px;
+  min-width: 150px;
+  color: var(--qds-slate-600);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.workspace-switcher select {
+  max-width: 190px;
+  min-height: 30px;
+  border: 1px solid var(--qds-border);
+  border-radius: 6px;
+  padding: 0 8px;
+  color: var(--qds-slate-800);
+  background: var(--qds-white);
+  font: inherit;
+  font-size: 11px;
 }
 
 .impersonation-banner {
@@ -2138,6 +2159,15 @@ h3 {
 
   .topbar {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .workspace-switcher {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+
+  .workspace-switcher select {
+    max-width: none;
   }
 
   .user-menu {

@@ -7,6 +7,7 @@ use App\Models\AssessmentExercise;
 use App\Models\AssessmentForm;
 use App\Models\AssessmentFormVersion;
 use App\Models\AssessmentSubmission;
+use App\Models\OdkTarget;
 use App\Models\OdkUser;
 use App\Models\ReferenceFacility;
 use Illuminate\Http\JsonResponse;
@@ -43,6 +44,7 @@ class MobileAssignmentController
                 'exercise.formVersion',
                 'facility.lga:id,source_id,code,name',
                 'facility.ward:id,source_id,name,reference_lga_id',
+                'target',
                 'user:id,name,email,staff_code',
                 'team:id,name',
                 'submissions' => fn ($query) => $query
@@ -109,6 +111,10 @@ class MobileAssignmentController
 
     private function resolveUser(Request $request): ?OdkUser
     {
+        if ($request->user('sanctum') instanceof OdkUser) {
+            return $request->user('sanctum');
+        }
+
         $email = trim((string) $request->query('assessor_email', ''));
         $assessorId = trim((string) $request->query('assessor_id', ''));
 
@@ -147,6 +153,8 @@ class MobileAssignmentController
             'assigned_at' => $assignment->assigned_at?->toISOString(),
             'due_at' => $assignment->due_at?->toDateString(),
             'allow_duplicate_submission' => $assignment->allow_duplicate_submission,
+            'target_type' => $assignment->target_type ?: ($assignment->facility ? OdkTarget::TYPE_FACILITY : OdkTarget::TYPE_NONE),
+            'target' => $this->targetPayload($assignment),
             'exercise' => $assignment->exercise ? $this->exercisePayload($assignment->exercise) : null,
             'facility' => $assignment->facility ? $this->facilityPayload($assignment) : null,
             'submission' => $submission ? [
@@ -188,6 +196,7 @@ class MobileAssignmentController
             'form_slug' => $exercise->form?->slug,
             'form_version_id' => $exercise->formVersion?->id,
             'form_version' => $exercise->formVersion?->version,
+            'target_type' => $exercise->target_type ?: OdkTarget::TYPE_FACILITY,
         ];
     }
 
@@ -263,5 +272,27 @@ class MobileAssignmentController
             'form_slug' => $exercise?->form?->slug,
             'form_version_id' => $exercise?->formVersion?->id,
         ];
+    }
+
+    private function targetPayload(AssessmentAssignment $assignment): ?array
+    {
+        if ($assignment->target) {
+            return [
+                'id' => $assignment->target->uuid,
+                'local_id' => $assignment->target->id,
+                'type' => $assignment->target->type,
+                'external_id' => $assignment->target->external_id,
+                'name' => $assignment->target->name,
+                'description' => $assignment->target->description,
+                'metadata' => $assignment->target->metadata,
+                'active' => $assignment->target->active,
+            ];
+        }
+
+        if ($assignment->facility) {
+            return $this->facilityPayload($assignment);
+        }
+
+        return null;
     }
 }

@@ -213,6 +213,7 @@ class OnlineAssessmentTest extends TestCase
 
         $uuid = (string) $submission->json('data.uuid');
 
+        Sanctum::actingAs($user);
         $this->postJson('/api/submissions/'.$uuid.'/review', [
             'action' => 'return',
             'note' => 'Please correct the assessment details.',

@@ -239,7 +239,10 @@ const teamDraft = reactive({
   member_ids: [] as number[],
 });
 
-const roleOptions = computed(() => roles.value.map((role) => ({ label: role.name, value: role.key })));
+const roleOptions = computed(() => roles.value.map((role) => ({
+  label: role.key === 'admin' ? 'Workspace admin' : role.name,
+  value: role.key,
+})));
 const userOptions = computed(() => [
   { label: 'No team lead', value: '' },
   ...users.value.map((user) => ({ label: user.name, value: String(user.id) })),

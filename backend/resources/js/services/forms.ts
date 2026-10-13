@@ -1,4 +1,4 @@
-import { authenticatedRequest, getOdkToken } from './auth';
+import { authenticatedRequest } from './auth';
 
 export type FormStatus = 'draft' | 'published' | 'archived' | 'retired' | string;
 
@@ -154,6 +154,10 @@ const fallbackForms: AssessmentForm[] = [
 
 const readJson = async <T>(url: string): Promise<T> => {
   const response = await authenticatedRequest(url, { method: 'GET' });
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}.`);
+  }
+
   return response.json() as Promise<T>;
 };
 

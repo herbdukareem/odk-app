@@ -84,7 +84,10 @@ class AssessmentSubmissionController
             'submitted_at' => ['nullable', 'date'],
         ]);
 
-        $submission = $submissions->submit($payload);
+        $user = $request->user('sanctum');
+        $submission = $user instanceof \App\Models\OdkUser
+            ? $submissions->submitMobile($user, $payload)
+            : $submissions->submit($payload);
 
         return response()->json([
             'success' => true,
@@ -113,6 +116,12 @@ class AssessmentSubmissionController
 
     public function uploadAttachment(Request $request, AssessmentSubmission $submission, AssessmentSubmissionService $submissions): JsonResponse
     {
+        $user = $request->user('sanctum');
+        if ($user instanceof \App\Models\OdkUser) {
+            $submission->load('assignment');
+            abort_unless($submission->assignment && $submissions->userCanAccessAssignment($user, $submission->assignment), 403, 'You cannot modify this submission.');
+        }
+
         $payload = $request->validate([
             'file' => ['required', 'file', 'max:20480', 'mimes:jpg,jpeg,png,pdf,webp,svg,heic,heif'],
             'field_key' => ['nullable', 'string', 'max:255'],

@@ -116,6 +116,7 @@
             <QdsField v-model="draft.assessment_form_id" label="Published form" :options="formOptionsForSelect" />
             <QdsField v-model="draft.assessment_form_version_id" label="Form version" :options="versionOptionsForSelect" />
           </div>
+          <QdsField v-model="draft.target_type" label="Assessment target" :options="targetTypeOptions" />
         </div>
 
         <div v-if="formOptions.length === 0" class="table-empty">
@@ -185,6 +186,7 @@ const draft = reactive({
   assessment_form_id: '',
   assessment_form_version_id: '',
   status: 'draft',
+  target_type: 'facility',
 });
 
 const statusFilterOptions = [
@@ -206,6 +208,14 @@ const periodFilterOptions = [
 ];
 
 const periodOptions = periodFilterOptions.filter((option) => option.value !== '');
+const targetTypeOptions = [
+  { label: 'Facility', value: 'facility' },
+  { label: 'Site', value: 'site' },
+  { label: 'School', value: 'school' },
+  { label: 'Project', value: 'project' },
+  { label: 'Participant', value: 'participant' },
+  { label: 'No target', value: 'no_target' },
+];
 
 const quarterOptions = [
   { label: 'Q1', value: '1' },
@@ -267,6 +277,7 @@ const resetDraft = () => {
     assessment_form_id: formOptions.value[0] ? String(formOptions.value[0].id) : '',
     assessment_form_version_id: formOptions.value[0]?.versions[0] ? String(formOptions.value[0].versions[0].id) : '',
     status: 'draft',
+    target_type: 'facility',
   });
 };
 
@@ -285,6 +296,7 @@ const openModal = (exercise?: AssessmentExercise) => {
       assessment_form_id: String(exercise.assessment_form_id),
       assessment_form_version_id: String(exercise.assessment_form_version_id),
       status: exercise.status,
+      target_type: exercise.target_type || 'facility',
     });
   } else {
     editingUuid.value = null;
@@ -317,6 +329,7 @@ const saveExercise = async () => {
     assessment_form_id: Number(draft.assessment_form_id),
     assessment_form_version_id: Number(draft.assessment_form_version_id),
     status: draft.status,
+    target_type: draft.target_type,
   };
 
   try {

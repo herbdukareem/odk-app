@@ -28,6 +28,7 @@
           <a href="#">Forgot password?</a>
         </div>
         <QdsButton type="submit" block>{{ submitting ? 'Signing in...' : 'Sign in' }}</QdsButton>
+        <QdsButton as="a" href="/register" variant="secondary" block>Create a workspace</QdsButton>
         <p class="auth-note">By signing in, you agree to the DataKit terms of use.</p>
       </form>
     </section>
@@ -43,6 +44,7 @@ import { loginOdkUser } from '../../services/auth';
 
 const emit = defineEmits<{
   'signed-in': [user: Awaited<ReturnType<typeof loginOdkUser>>];
+  register: [];
 }>();
 const email = ref('');
 const password = ref('');

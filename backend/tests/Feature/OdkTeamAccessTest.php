@@ -81,6 +81,7 @@ class OdkTeamAccessTest extends TestCase
             'name' => ucfirst($roleKey) . ' User',
             'email' => $email,
             'status' => OdkUser::STATUS_ACTIVE,
+            'is_platform_admin' => $roleKey === 'admin',
             'password' => Hash::make('password'),
         ]);
     }

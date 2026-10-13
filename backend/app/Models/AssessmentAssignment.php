@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOdkWorkspace;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class AssessmentAssignment extends Model
 {
-    use SoftDeletes;
+    use BelongsToOdkWorkspace, SoftDeletes;
 
     public const ASSIGNEE_USER = 'user';
     public const ASSIGNEE_TEAM = 'team';
@@ -44,6 +45,11 @@ class AssessmentAssignment extends Model
     public function facility()
     {
         return $this->belongsTo(ReferenceFacility::class, 'reference_facility_id');
+    }
+
+    public function target()
+    {
+        return $this->belongsTo(OdkTarget::class, 'odk_target_id');
     }
 
     public function user()

@@ -1,3 +1,5 @@
+import { authenticatedRequest } from './auth';
+
 export type AssignmentStatus = 'assigned' | 'in_progress' | 'submitted' | 'reviewed' | 'cancelled' | 'expired' | string;
 export type AssignmentAssigneeType = 'user' | 'team';
 
@@ -9,6 +11,7 @@ export type AssignmentExerciseOption = {
   status: string;
   starts_at?: string | null;
   ends_at?: string | null;
+  target_type?: string;
 };
 
 export type AssignmentUserOption = {
@@ -33,11 +36,21 @@ export type AssignmentFacilityOption = {
   ward?: { id: number; name: string } | null;
 };
 
+export type AssignmentTargetOption = {
+  id: number;
+  uuid: string;
+  type: string;
+  external_id?: string | null;
+  name: string;
+};
+
 export type AssessmentAssignment = {
   id: number;
   uuid: string;
   assessment_exercise_id: number;
-  reference_facility_id: number;
+  reference_facility_id?: number | null;
+  target_type?: string;
+  odk_target_id?: number | null;
   assignee_type: AssignmentAssigneeType;
   odk_user_id?: number | null;
   odk_team_id?: number | null;
@@ -48,6 +61,7 @@ export type AssessmentAssignment = {
   submissions_count?: number;
   exercise?: AssignmentExerciseOption | null;
   facility?: AssignmentFacilityOption | null;
+  target?: AssignmentTargetOption | null;
   user?: AssignmentUserOption | null;
   team?: AssignmentTeamOption | null;
 };
@@ -57,6 +71,8 @@ export type AssignmentOptions = {
   users: AssignmentUserOption[];
   teams: AssignmentTeamOption[];
   facilities: AssignmentFacilityOption[];
+  target_types: string[];
+  targets: AssignmentTargetOption[];
 };
 
 export type AssignmentsPayload = {
@@ -81,7 +97,9 @@ export type AssignmentCreatePayload = {
   assessment_exercise_id: number;
   assignee_type: AssignmentAssigneeType;
   assignee_id: number;
-  facility_ids: number[];
+  facility_ids?: number[];
+  target_type?: string;
+  target_ids?: number[];
   status?: AssignmentStatus;
   allow_duplicate_submission?: boolean;
   due_at?: string | null;
@@ -101,13 +119,13 @@ type ApiEnvelope<T> = {
 };
 
 const readJson = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const response = await authenticatedRequest(url, { method: 'GET' });
   if (!response.ok) throw new Error(`Request failed with status ${response.status}.`);
   return response.json() as Promise<T>;
 };
 
 const writeJson = async <T>(url: string, method: 'POST' | 'PATCH', body: unknown): Promise<T> => {
-  const response = await fetch(url, {
+  const response = await authenticatedRequest(url, {
     method,
     headers: {
       Accept: 'application/json',

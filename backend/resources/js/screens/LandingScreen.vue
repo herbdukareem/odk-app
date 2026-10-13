@@ -4,6 +4,7 @@
       <BrandMark />
       <div class="landing-nav__actions">
         <span class="landing-status"><span />Online workspace</span>
+        <QdsButton as="a" href="/register" variant="secondary">Create workspace</QdsButton>
         <QdsButton icon="arrowLeft" class="landing-sign-in" @click="$emit('sign-in')">Sign in</QdsButton>
       </div>
     </header>
@@ -194,6 +195,7 @@ import QdsButton from '../components/qds/QdsButton.vue';
 
 defineEmits<{
   'sign-in': [];
+  register: [];
 }>();
 </script>
 

@@ -1,3 +1,5 @@
+import { authenticatedRequest } from './auth';
+
 export type SubmissionStatus = 'draft' | 'submitted' | 'under_review' | 'returned' | 'reviewed' | 'approved' | string;
 
 export type AssessmentSubmission = {
@@ -113,13 +115,13 @@ export type SubmissionQuery = {
 };
 
 const readJson = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const response = await authenticatedRequest(url, { method: 'GET' });
   if (!response.ok) throw new Error(`Request failed with status ${response.status}.`);
   return response.json() as Promise<T>;
 };
 
 const writeJson = async <T>(url: string, body: unknown): Promise<T> => {
-  const response = await fetch(url, {
+  const response = await authenticatedRequest(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',

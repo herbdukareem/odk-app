@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Models\AssessmentExercise;
 use App\Models\AssessmentForm;
 use App\Models\AssessmentFormVersion;
+use App\Models\OdkTarget;
+use App\Services\Saas\OdkSubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -52,8 +54,9 @@ class AssessmentExerciseController
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, OdkSubscriptionService $subscriptions): JsonResponse
     {
+        $subscriptions->assertCurrentWithinLimit('exercises');
         $data = $this->validated($request);
         $version = $this->publishedVersionForForm((int) $data['assessment_form_id'], (int) $data['assessment_form_version_id']);
 
@@ -118,6 +121,7 @@ class AssessmentExerciseController
                 AssessmentExercise::STATUS_CLOSED,
                 AssessmentExercise::STATUS_ARCHIVED,
             ])],
+            'target_type' => ['nullable', Rule::in(OdkTarget::types())],
         ]);
 
         if ($data['period_type'] !== AssessmentExercise::PERIOD_QUARTER) {
@@ -147,6 +151,7 @@ class AssessmentExerciseController
             'assessment_form_id' => $version->assessment_form_id,
             'assessment_form_version_id' => $version->id,
             'status' => $data['status'],
+            'target_type' => $data['target_type'] ?? OdkTarget::TYPE_FACILITY,
             ...$statusTimestamps,
         ];
     }

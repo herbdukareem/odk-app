@@ -25,6 +25,7 @@ class OdkUser extends Authenticatable
     protected $casts = [
         'device_info' => 'array',
         'last_login_at' => 'datetime',
+        'is_platform_admin' => 'boolean',
     ];
 
     public function role()
@@ -37,6 +38,26 @@ class OdkUser extends Authenticatable
         return $this->belongsToMany(OdkTeam::class, 'odk_team_members', 'odk_user_id', 'odk_team_id')
             ->withPivot(['member_role', 'joined_at'])
             ->withTimestamps();
+    }
+
+    public function workspaces()
+    {
+        return $this->belongsToMany(OdkWorkspace::class, 'odk_workspace_members', 'odk_user_id', 'odk_workspace_id')
+            ->withPivot(['role_key', 'status', 'joined_at'])
+            ->withTimestamps();
+    }
+
+    public function workspaceMemberships()
+    {
+        return $this->hasMany(OdkWorkspaceMember::class, 'odk_user_id');
+    }
+
+    public function workspaceRole(int $workspaceId): ?string
+    {
+        return $this->workspaceMemberships()
+            ->where('odk_workspace_id', $workspaceId)
+            ->where('status', 'active')
+            ->value('role_key');
     }
 
     public function leadingTeams()
@@ -54,5 +75,10 @@ class OdkUser extends Authenticatable
         return $this->relationLoaded('role')
             ? $this->role?->key === 'admin'
             : $this->role()->where('key', 'admin')->exists();
+    }
+
+    public function isPlatformAdmin(): bool
+    {
+        return (bool) $this->is_platform_admin;
     }
 }
