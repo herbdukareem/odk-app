@@ -129,6 +129,7 @@ jobs:
 
           php artisan optimize:clear || true
           php artisan migrate --force
+          php artisan odk:ensure-saas-plans
           php artisan odk:ensure-nicare-form
           php artisan config:cache
           php artisan route:cache || true

@@ -1,3 +1,5 @@
+import { authenticatedRequest, getOdkToken } from './auth';
+
 export type FormStatus = 'draft' | 'published' | 'archived' | 'retired' | string;
 
 export type AssessmentFormVersion = {
@@ -151,28 +153,15 @@ const fallbackForms: AssessmentForm[] = [
 ];
 
 const readJson = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}.`);
-  }
-
+  const response = await authenticatedRequest(url, { method: 'GET' });
   return response.json() as Promise<T>;
 };
 
 const writeJson = async <T>(url: string, method: string, body?: unknown): Promise<T> => {
-  const response = await fetch(url, {
+  const response = await authenticatedRequest(url, {
     method,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with status ${response.status}.`);
-  }
 
   return response.json() as Promise<T>;
 };
@@ -180,8 +169,9 @@ const writeJson = async <T>(url: string, method: string, body?: unknown): Promis
 export const listAssessmentForms = async (): Promise<AssessmentForm[]> => {
   try {
     const payload = await readJson<ApiEnvelope<AssessmentForm[]>>('/api/forms');
-    return payload.data.length > 0 ? payload.data : fallbackForms;
-  } catch {
+    return payload.data.length > 0 || getOdkToken() ? payload.data : fallbackForms;
+  } catch (error) {
+    if (getOdkToken()) throw error;
     return fallbackForms;
   }
 };
@@ -190,7 +180,8 @@ export const getAssessmentForm = async (slug: string): Promise<AssessmentForm> =
   try {
     const payload = await readJson<ApiEnvelope<AssessmentForm>>(`/api/forms/${slug}`);
     return payload.data;
-  } catch {
+  } catch (error) {
+    if (getOdkToken()) throw error;
     return fallbackForms.find((form) => form.slug === slug) ?? fallbackForms[0];
   }
 };

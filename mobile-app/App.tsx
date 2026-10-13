@@ -136,6 +136,17 @@ type Facility = {
   exercise_ends_at?: string | null;
   form_slug?: string | null;
   form_version_id?: number | null;
+  target_type?: string;
+};
+
+type MobileTarget = {
+  id: number | string;
+  local_id?: number;
+  type: string;
+  external_id?: string | null;
+  name: string;
+  description?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type MobileExercise = {
@@ -156,6 +167,8 @@ type MobileAssignment = {
   status: string;
   due_at?: string | null;
   allow_duplicate_submission?: boolean;
+  target_type?: string;
+  target?: MobileTarget | null;
   exercise?: MobileExercise | null;
   facility?: Facility | null;
   submission?: MobileAssignmentSubmission | null;
@@ -329,12 +342,38 @@ type MobileAssignmentsResponse = {
   synced_at?: string;
 };
 
+type MobileWorkspace = {
+  id: number;
+  uuid: string;
+  slug: string;
+  name: string;
+  type: 'individual' | 'organization';
+  status: string;
+  pivot?: { role_key: string; status: string };
+};
+
+type MobileUser = {
+  id: number;
+  uuid: string;
+  name: string;
+  email: string;
+  staff_code?: string | null;
+  workspaces?: MobileWorkspace[];
+};
+
+type MobileAuthResponse = {
+  success: boolean;
+  data: { user: MobileUser; token: string };
+};
+
 const API_BASE_URL = String(
   Constants.expoConfig?.extra?.apiBaseUrl ?? 'http://odk-web.test/api'
 ).replace(/\/$/, '');
 const REQUEST_TIMEOUT_MS = 15000;
 
 const STORAGE_KEYS = {
+  authToken: 'datakit.mobile.auth-token.v1',
+  authUser: 'datakit.mobile.auth-user.v1',
   forms: 'nicare.forms.v1',
   formCacheMeta: 'nicare.forms.cache-meta.v1',
   assignments: 'nicare.assignments.v1',
@@ -492,6 +531,13 @@ const fallbackForm: FormSchema = {
 export default function App() {
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [mobileUser, setMobileUser] = useState<MobileUser | null>(null);
+  const [mobileEmail, setMobileEmail] = useState('');
+  const [mobilePassword, setMobilePassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [mobileWorkspaces, setMobileWorkspaces] = useState<MobileWorkspace[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<number | null>(null);
   const [screen, setScreen] = useState<Screen>('Home');
   const [forms, setForms] = useState<FormSchema[]>([]);
   const [formCacheMeta, setFormCacheMeta] = useState<FormCacheMeta | null>(null);
@@ -514,7 +560,9 @@ export default function App() {
     let mounted = true;
 
     async function bootstrap() {
-      const [storedForms, storedFormCacheMeta, storedAssignments, storedFacilities, storedDrafts, storedActiveDraftId, storedQueue, storedHistory] = await Promise.all([
+      const [storedToken, storedUser, storedForms, storedFormCacheMeta, storedAssignments, storedFacilities, storedDrafts, storedActiveDraftId, storedQueue, storedHistory] = await Promise.all([
+        loadJson<string | null>(STORAGE_KEYS.authToken, null),
+        loadJson<MobileUser | null>(STORAGE_KEYS.authUser, null),
         loadJson<FormSchema[]>(STORAGE_KEYS.forms, []),
         loadJson<FormCacheMeta | null>(STORAGE_KEYS.formCacheMeta, null),
         loadJson<MobileAssignment[]>(STORAGE_KEYS.assignments, []),
@@ -542,6 +590,10 @@ export default function App() {
       setActiveDraftId(restoredActiveDraftId);
       setQueue(restoredQueue);
       setHistory(storedHistory);
+      setMobileUser(storedUser);
+      setMobileWorkspaces(storedUser?.workspaces ?? []);
+      setSelectedWorkspaceId(storedUser?.workspaces?.[0]?.id ?? null);
+      setSignedIn(Boolean(storedToken && storedUser));
       setReady(true);
 
       if (storedDrafts.length > 0) {
@@ -589,19 +641,60 @@ export default function App() {
   const lgas = useMemo(() => ['All LGAs', ...unique(facilities.map((facility) => facility.lga).filter(Boolean) as string[])], [facilities]);
   const wards = useMemo(() => ['All wards', ...unique(facilities.map((facility) => facility.ward).filter(Boolean) as string[])], [facilities]);
   const validation = activeDraft ? validateDraft(activeForm, activeDraft) : emptyValidationResult();
+  const activeAssessor = mobileUser
+    ? { id: mobileUser.staff_code || String(mobileUser.id), name: mobileUser.name, email: mobileUser.email }
+    : assessor;
+
+  async function signInMobile() {
+    setAuthError('');
+    setAuthSubmitting(true);
+    try {
+      const response = await apiPost<MobileAuthResponse>('/mobile/auth/login', {
+        email: mobileEmail.trim(),
+        password: mobilePassword,
+      });
+      await saveJson(STORAGE_KEYS.authToken, response.data.token);
+      await saveJson(STORAGE_KEYS.authUser, response.data.user);
+      setMobileUser(response.data.user);
+      setMobileWorkspaces(response.data.user.workspaces ?? []);
+      setSelectedWorkspaceId(response.data.user.workspaces?.[0]?.id ?? null);
+      setSignedIn(true);
+      setMobilePassword('');
+      setLastMessage('Signed in. Download your assigned work when you are online.');
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Unable to sign in.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
+  async function switchMobileWorkspace(workspaceId: number) {
+    if (workspaceId === selectedWorkspaceId) return;
+    try {
+      await apiPost(`/auth/workspaces/${workspaceId}/switch`, {});
+      setSelectedWorkspaceId(workspaceId);
+      setAssignments([]);
+      setFacilities([]);
+      await saveJson(STORAGE_KEYS.assignments, []);
+      await saveJson(STORAGE_KEYS.facilities, []);
+      await refreshReferenceData();
+    } catch (error) {
+      Alert.alert('Workspace switch failed', error instanceof Error ? error.message : 'Unable to switch workspace.');
+    }
+  }
 
   async function refreshReferenceData() {
     setRefreshing(true);
     try {
       const assignmentResponse = await apiGet<MobileAssignmentsResponse>(
-        `/mobile/assignments?assessor_id=${encodeURIComponent(assessor.id)}&assessor_email=${encodeURIComponent(assessor.email)}`
+        '/mobile/secure/assignments'
       );
 
       const downloadedAssignments = assignmentResponse.data.assignments ?? [];
       const downloadedForms = (assignmentResponse.data.forms ?? [])
         .map(mapPublishedForm)
         .filter((item): item is FormSchema => item !== null);
-      const downloadedFacilities = (assignmentResponse.data.facilities ?? []).filter(Boolean);
+      const downloadedFacilities = assignmentsToFacilities(downloadedAssignments, assignmentResponse.data.facilities ?? []);
       const returnedDrafts = downloadedAssignments
         .map((assignment) => draftFromReturnedAssignment(assignment, downloadedForms))
         .filter((draft): draft is DraftAssessment => draft !== null);
@@ -696,11 +789,11 @@ export default function App() {
       exerciseEndsAt: facility.exercise_ends_at,
       formSchema: formSnapshot,
       facility,
-      assessor,
+      assessor: activeAssessor,
       answers: {
         assessment_id: assessmentId,
         assessment_date: now.slice(0, 10),
-        assessor_id: assessor.id,
+        assessor_id: activeAssessor.id,
         facility_id: facility.id,
         facility_name: facility.name,
         lga_id: facility.lga_id ?? '',
@@ -1067,6 +1160,14 @@ export default function App() {
         lga: draft.facility.lga,
         ward: draft.facility.ward,
       },
+      target_type: draft.facility.target_type ?? 'facility',
+      target: draft.facility.target_type && draft.facility.target_type !== 'facility'
+        ? {
+            id: draft.facility.id,
+            type: draft.facility.target_type,
+            name: draft.facility.name,
+          }
+        : null,
       assessor_id: draft.assessor.id,
       assessor_name: draft.assessor.name,
       assessor: draft.assessor,
@@ -1091,7 +1192,7 @@ export default function App() {
     const remoteUuid = isRemoteSubmissionUuid(existingRemoteUuid) ? existingRemoteUuid : undefined;
     const submission = remoteUuid
       ? null
-      : await apiPost<{ success: boolean; data: { id?: number; uuid?: string } }>('/mobile/submissions', payload);
+      : await apiPost<{ success: boolean; data: { id?: number; uuid?: string } }>('/mobile/secure/submissions', payload);
     const uuid = remoteUuid ?? submission?.data.uuid;
 
     if (!isRemoteSubmissionUuid(uuid)) {
@@ -1144,10 +1245,14 @@ export default function App() {
     data.append('original_name', attachment.name);
     data.append('captured_at', attachment.capturedAt);
 
-    const url = `${API_BASE_URL}/mobile/submissions/${submissionUuid}/attachments`;
+    const token = await loadJson<string | null>(STORAGE_KEYS.authToken, null);
+    const url = `${API_BASE_URL}/mobile/secure/submissions/${submissionUuid}/attachments`;
     const response = await fetchWithTimeout(url, {
       method: 'POST',
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: data,
     });
 
@@ -1180,13 +1285,29 @@ export default function App() {
           <Brand large />
           <Text style={styles.welcome}>Welcome back</Text>
           <Text style={styles.mutedCenter}>Sign in to access your assigned assessment forms.</Text>
-          <TextInput style={styles.input} value={assessor.email} editable={false} />
-          <TextInput style={styles.input} secureTextEntry value="password" editable={false} />
+          <TextInput
+            style={styles.input}
+            value={mobileEmail}
+            onChangeText={setMobileEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            placeholder="Email address"
+            editable={!authSubmitting}
+          />
+          <TextInput
+            style={styles.input}
+            secureTextEntry
+            value={mobilePassword}
+            onChangeText={setMobilePassword}
+            placeholder="Password"
+            editable={!authSubmitting}
+          />
+          {authError ? <Text style={styles.errorText}>{authError}</Text> : null}
           <View style={styles.rememberRow}>
             <Text style={styles.rememberText}>Remember me</Text>
             <Text style={styles.linkText}>Forgot password?</Text>
           </View>
-          <PrimaryButton label="Sign in" onPress={() => setSignedIn(true)} />
+          <PrimaryButton label={authSubmitting ? 'Signing in...' : 'Sign in'} onPress={signInMobile} disabled={authSubmitting || !mobileEmail.trim() || !mobilePassword} />
           <View style={styles.noticeCard}>
             <Text style={styles.noticeIcon}>Wi-Fi</Text>
             <Text style={styles.noticeText}>Connect to download assigned forms and facility references.</Text>
@@ -1221,6 +1342,10 @@ export default function App() {
               onRefresh={refreshReferenceData}
               onStart={() => setScreen('Facilities')}
               onSync={() => setScreen('Sync')}
+              assessorName={activeAssessor.name}
+              workspaces={mobileWorkspaces}
+              selectedWorkspaceId={selectedWorkspaceId}
+              onWorkspace={switchMobileWorkspace}
               onOpenDraft={(draftId) => {
                 activateDraft(draftId);
                 setScreen('Assessment');
@@ -1333,6 +1458,10 @@ function HomeScreen({
   onRefresh,
   onStart,
   onSync,
+  assessorName,
+  workspaces,
+  selectedWorkspaceId,
+  onWorkspace,
   onOpenDraft,
 }: {
   form: FormSchema;
@@ -1346,6 +1475,10 @@ function HomeScreen({
   onRefresh: () => void;
   onStart: () => void;
   onSync: () => void;
+  assessorName: string;
+  workspaces: MobileWorkspace[];
+  selectedWorkspaceId: number | null;
+  onWorkspace: (workspaceId: number) => void;
   onOpenDraft: (draftId: string) => void;
 }) {
   const activeDraft = drafts[0];
@@ -1361,8 +1494,25 @@ function HomeScreen({
         <StatusPill label="Online" tone="success" />
       </View>
 
+      {workspaces.length > 1 ? (
+        <Pressable
+          style={styles.workspaceSwitcher}
+          onPress={() => {
+            const currentIndex = workspaces.findIndex((workspace) => workspace.id === selectedWorkspaceId);
+            const nextWorkspace = workspaces[(currentIndex + 1) % workspaces.length];
+            if (nextWorkspace) onWorkspace(nextWorkspace.id);
+          }}
+        >
+          <Text style={styles.workspaceSwitcherLabel}>Workspace</Text>
+          <Text style={styles.workspaceSwitcherValue} numberOfLines={1}>
+            {workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name ?? 'Select workspace'}
+          </Text>
+          <Feather name="chevron-down" size={16} color={colors.green800} />
+        </Pressable>
+      ) : null}
+
       <Text style={styles.fieldDate}>FRI 09 OCT 2026 - EXERCISE {exercises[0]?.code ?? 'FIELD QA'}</Text>
-      <Text style={styles.fieldGreeting}>Afternoon,{'\n'}Amina.</Text>
+      <Text style={styles.fieldGreeting}>Afternoon,{'\n'}{assessorName || 'Assessor'}.</Text>
 
       <Pressable style={styles.featureWorkCard} onPress={activeDraft ? () => onOpenDraft(activeDraft.id) : onStart}>
         <View style={styles.rowBetween}>
@@ -2815,6 +2965,64 @@ function draftFromReturnedAssignment(assignment: MobileAssignment, availableForm
   };
 }
 
+function assignmentsToFacilities(assignments: MobileAssignment[], legacyFacilities: Facility[]): Facility[] {
+  const normalized = assignments.map((assignment): Facility | null => {
+    if (assignment.facility) {
+      return assignment.facility;
+    }
+
+    const target = assignment.target;
+    const exercise = assignment.exercise;
+    if (target) {
+      return {
+        id: target.id,
+        code: target.external_id,
+        name: target.name,
+        type: target.type,
+        target_type: assignment.target_type || target.type,
+        assignment_id: assignment.id,
+        assignment_uuid: assignment.uuid,
+        assignment_status: assignment.status,
+        assignment_due_at: assignment.due_at,
+        allow_duplicate_submission: assignment.allow_duplicate_submission,
+        exercise_id: exercise?.id,
+        exercise_uuid: exercise?.uuid,
+        exercise_name: exercise?.name,
+        exercise_code: exercise?.code,
+        exercise_status: exercise?.status,
+        exercise_starts_at: exercise?.starts_at,
+        exercise_ends_at: exercise?.ends_at,
+        form_slug: exercise?.form_slug,
+        form_version_id: exercise?.form_version_id,
+      };
+    }
+
+    if (assignment.target_type === 'no_target') {
+      return {
+        id: `assignment-${assignment.id}`,
+        name: 'Unspecified target',
+        target_type: 'no_target',
+        assignment_id: assignment.id,
+        assignment_uuid: assignment.uuid,
+        assignment_status: assignment.status,
+        assignment_due_at: assignment.due_at,
+        allow_duplicate_submission: assignment.allow_duplicate_submission,
+        exercise_id: exercise?.id,
+        exercise_uuid: exercise?.uuid,
+        exercise_name: exercise?.name,
+        exercise_code: exercise?.code,
+        exercise_status: exercise?.status,
+        form_slug: exercise?.form_slug,
+        form_version_id: exercise?.form_version_id,
+      };
+    }
+
+    return null;
+  }).filter((facility): facility is Facility => facility !== null);
+
+  return normalized.length > 0 ? normalized : legacyFacilities;
+}
+
 function mapPublishedForm(record: PublishedFormResponse['data'][number]): FormSchema | null {
   const version = record.current_version;
   if (!version) {
@@ -3030,7 +3238,13 @@ function toNullableNumber(value: unknown): number | null {
 
 async function apiGet<T>(path: string): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
-  const response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } });
+  const token = await loadJson<string | null>(STORAGE_KEYS.authToken, null);
+  const response = await fetchWithTimeout(url, {
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
 
   if (!response.ok) {
     throw new Error(await responseError(response, url));
@@ -3041,11 +3255,13 @@ async function apiGet<T>(path: string): Promise<T> {
 
 async function apiPost<T>(path: string, payload: unknown): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
+  const token = await loadJson<string | null>(STORAGE_KEYS.authToken, null);
   const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(payload),
   });
@@ -3536,6 +3752,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f4ee',
     paddingVertical: 0,
     marginBottom: 14,
+  },
+  workspaceSwitcher: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.green100,
+    borderRadius: 8,
+    backgroundColor: colors.white,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  workspaceSwitcherLabel: {
+    color: colors.slate600,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  workspaceSwitcherValue: {
+    flex: 1,
+    color: colors.green900,
+    fontSize: 12,
+    fontWeight: '900',
   },
   fieldBrandLockup: {
     flexDirection: 'row',
