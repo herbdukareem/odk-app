@@ -3,11 +3,15 @@
 namespace Tests\Feature;
 
 use App\Mail\OdkWorkspaceInvitationMail;
+use App\Models\AssessmentExercise;
 use App\Models\AssessmentForm;
 use App\Models\AssessmentFormFieldOption;
+use App\Models\AssessmentFormVersion;
 use App\Models\OdkRole;
 use App\Models\OdkUser;
 use App\Models\OdkWorkspace;
+use App\Support\OdkWorkspaceContext;
+use App\Services\Forms\FormBuilderSnapshotService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
@@ -245,6 +249,57 @@ class OdkWorkspaceTest extends TestCase
                 ->where('assessment_form_field_id', $field['id'])
                 ->count()
         );
+    }
+
+    public function test_publishing_a_form_updates_open_exercises_but_preserves_closed_exercises(): void
+    {
+        [, $workspace] = $this->createWorkspaceUser('versioning@example.com', 'Versioning workspace');
+        $context = app(OdkWorkspaceContext::class);
+        $context->set($workspace);
+
+        try {
+            $form = AssessmentForm::create([
+                'uuid' => fake()->uuid(),
+                'slug' => 'versioned-form',
+                'title' => 'Versioned form',
+                'status' => AssessmentForm::STATUS_DRAFT,
+            ]);
+            $service = app(FormBuilderSnapshotService::class);
+            $firstVersion = $service->publish($form);
+
+            $exercises = collect([
+                AssessmentExercise::STATUS_DRAFT,
+                AssessmentExercise::STATUS_SCHEDULED,
+                AssessmentExercise::STATUS_ACTIVE,
+                AssessmentExercise::STATUS_CLOSED,
+            ])->map(function (string $status) use ($form, $firstVersion): AssessmentExercise {
+                return AssessmentExercise::create([
+                    'uuid' => fake()->uuid(),
+                    'name' => ucfirst($status).' exercise',
+                    'code' => strtoupper($status).'-VERSIONED',
+                    'period_type' => AssessmentExercise::PERIOD_CUSTOM,
+                    'year' => (int) now()->year,
+                    'starts_at' => now()->toDateString(),
+                    'ends_at' => now()->addDay()->toDateString(),
+                    'assessment_form_id' => $form->id,
+                    'assessment_form_version_id' => $firstVersion->id,
+                    'status' => $status,
+                ]);
+            });
+
+            $form->forceFill(['status' => AssessmentForm::STATUS_DRAFT])->save();
+            $secondVersion = $service->publish($form->fresh());
+
+            $exercises->each(function (AssessmentExercise $exercise) use ($secondVersion): void {
+                $expectedVersion = $exercise->status === AssessmentExercise::STATUS_CLOSED
+                    ? $exercise->assessment_form_version_id
+                    : $secondVersion->id;
+
+                $this->assertSame($expectedVersion, $exercise->fresh()->assessment_form_version_id);
+            });
+        } finally {
+            $context->clear();
+        }
     }
 
     private function createWorkspaceUser(string $email, string $workspaceName): array

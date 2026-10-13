@@ -813,7 +813,7 @@ export default function App() {
 
     const permission = await Location.requestForegroundPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('GPS permission needed', 'Allow location access to capture facility coordinates.');
+      Alert.alert('GPS permission needed', 'Allow location access to capture target coordinates.');
       return;
     }
 
@@ -2117,7 +2117,7 @@ function ReviewScreen({
           <View style={styles.flexOne}>
             <Text style={styles.reviewFacilityName}>{draft.facility.name}</Text>
             <Text style={styles.muted}>{draft.formTitle}</Text>
-            <Text style={styles.metaText}>{draft.facility.lga ?? 'Unknown LGA'} - {draft.facility.ward ?? 'Unknown ward'}</Text>
+            <Text style={styles.metaText}>{formatTargetLocation(draft.facility)}</Text>
           </View>
           <StatusPill label={hasIssues ? 'Needs attention' : 'Ready'} tone={hasIssues ? 'warning' : 'success'} />
         </View>
@@ -2883,7 +2883,7 @@ function isBlankAnswer(value: unknown): boolean {
 
 function draftFromReturnedAssignment(assignment: MobileAssignment, availableForms: FormSchema[]): DraftAssessment | null {
   const submission = assignment.submission;
-  const facility = assignment.facility;
+  const facility = assignmentToTarget(assignment);
 
   if (!submission || submission.status !== 'returned' || !facility) {
     return null;
@@ -2937,62 +2937,62 @@ function draftFromReturnedAssignment(assignment: MobileAssignment, availableForm
   };
 }
 
+function assignmentToTarget(assignment: MobileAssignment): Facility | null {
+  if (assignment.facility) {
+    return assignment.facility;
+  }
+
+  const target = assignment.target;
+  const exercise = assignment.exercise;
+  if (target) {
+    return {
+      id: target.id,
+      code: target.external_id,
+      name: target.name,
+      type: target.type,
+      target_type: assignment.target_type || target.type,
+      assignment_id: assignment.id,
+      assignment_uuid: assignment.uuid,
+      assignment_status: assignment.status,
+      assignment_due_at: assignment.due_at,
+      allow_duplicate_submission: assignment.allow_duplicate_submission,
+      exercise_id: exercise?.id,
+      exercise_uuid: exercise?.uuid,
+      exercise_name: exercise?.name,
+      exercise_code: exercise?.code,
+      exercise_status: exercise?.status,
+      exercise_starts_at: exercise?.starts_at,
+      exercise_ends_at: exercise?.ends_at,
+      form_slug: exercise?.form_slug,
+      form_version_id: exercise?.form_version_id,
+    };
+  }
+
+  if (assignment.target_type === 'no_target') {
+    return {
+      id: `assignment-${assignment.id}`,
+      name: 'Unspecified target',
+      target_type: 'no_target',
+      assignment_id: assignment.id,
+      assignment_uuid: assignment.uuid,
+      assignment_status: assignment.status,
+      assignment_due_at: assignment.due_at,
+      allow_duplicate_submission: assignment.allow_duplicate_submission,
+      exercise_id: exercise?.id,
+      exercise_uuid: exercise?.uuid,
+      exercise_name: exercise?.name,
+      exercise_code: exercise?.code,
+      exercise_status: exercise?.status,
+      form_slug: exercise?.form_slug,
+      form_version_id: exercise?.form_version_id,
+    };
+  }
+
+  return null;
+}
+
 function assignmentsToTargets(assignments: MobileAssignment[]): Facility[] {
-  const normalized = assignments.map((assignment): Facility | null => {
-    if (assignment.facility) {
-      return assignment.facility;
-    }
-
-    const target = assignment.target;
-    const exercise = assignment.exercise;
-    if (target) {
-      return {
-        id: target.id,
-        code: target.external_id,
-        name: target.name,
-        type: target.type,
-        target_type: assignment.target_type || target.type,
-        assignment_id: assignment.id,
-        assignment_uuid: assignment.uuid,
-        assignment_status: assignment.status,
-        assignment_due_at: assignment.due_at,
-        allow_duplicate_submission: assignment.allow_duplicate_submission,
-        exercise_id: exercise?.id,
-        exercise_uuid: exercise?.uuid,
-        exercise_name: exercise?.name,
-        exercise_code: exercise?.code,
-        exercise_status: exercise?.status,
-        exercise_starts_at: exercise?.starts_at,
-        exercise_ends_at: exercise?.ends_at,
-        form_slug: exercise?.form_slug,
-        form_version_id: exercise?.form_version_id,
-      };
-    }
-
-    if (assignment.target_type === 'no_target') {
-      return {
-        id: `assignment-${assignment.id}`,
-        name: 'Unspecified target',
-        target_type: 'no_target',
-        assignment_id: assignment.id,
-        assignment_uuid: assignment.uuid,
-        assignment_status: assignment.status,
-        assignment_due_at: assignment.due_at,
-        allow_duplicate_submission: assignment.allow_duplicate_submission,
-        exercise_id: exercise?.id,
-        exercise_uuid: exercise?.uuid,
-        exercise_name: exercise?.name,
-        exercise_code: exercise?.code,
-        exercise_status: exercise?.status,
-        form_slug: exercise?.form_slug,
-        form_version_id: exercise?.form_version_id,
-      };
-    }
-
-    return null;
-  }).filter((facility): facility is Facility => facility !== null);
-
-  return normalized;
+  return assignments.map(assignmentToTarget).filter((target): target is Facility => target !== null);
 }
 
 function mapPublishedForm(record: PublishedFormResponse['data'][number]): FormSchema | null {
@@ -3324,6 +3324,10 @@ async function saveJson<T>(key: string, value: T): Promise<void> {
   await Storage.setItemAsync(key, JSON.stringify(value));
 }
 
+async function clearStoredMobileSession(): Promise<void> {
+  await Promise.all(Object.values(STORAGE_KEYS).map((key) => Storage.removeItemAsync(key)));
+}
+
 function yesNoOptions(): FieldOption[] {
   return [
     { label: 'Yes', value: 'yes', score: 2 },
@@ -3333,6 +3337,12 @@ function yesNoOptions(): FieldOption[] {
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values)).sort();
+}
+
+function formatTargetType(value: string): string {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function formatTime(value: string): string {
@@ -3352,11 +3362,15 @@ function formatRoundMeta(facility: Facility): string {
   if (facility.assignment_due_at) {
     const due = new Date(facility.assignment_due_at);
     if (!Number.isNaN(due.getTime())) {
-      return `Due ${new Intl.DateTimeFormat('en-NG', { day: '2-digit', month: 'short' }).format(due)} - ${facility.lga ?? 'Unknown LGA'}`;
+      return `Due ${new Intl.DateTimeFormat('en-NG', { day: '2-digit', month: 'short' }).format(due)} - ${formatTargetLocation(facility)}`;
     }
   }
 
-  return `${facility.lga ?? 'Unknown LGA'} - ${facility.ward ?? 'Unknown ward'}`;
+  return formatTargetLocation(facility);
+}
+
+function formatTargetLocation(target: Facility): string {
+  return target.lga || target.ward ? [target.lga, target.ward].filter(Boolean).join(' - ') : 'No location details';
 }
 
 function formatScore(value: number): string {
@@ -3478,6 +3492,27 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerLogout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: colors.green100,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: colors.white,
+  },
+  headerLogoutText: {
+    color: colors.green800,
+    fontSize: 10,
+    fontWeight: '900',
   },
   brandRow: {
     flexDirection: 'row',

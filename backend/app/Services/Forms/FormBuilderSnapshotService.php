@@ -5,7 +5,9 @@ namespace App\Services\Forms;
 use App\Models\AssessmentForm;
 use App\Models\AssessmentFormRule;
 use App\Models\AssessmentFormVersion;
+use App\Models\AssessmentExercise;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 
 class FormBuilderSnapshotService
 {
@@ -61,32 +63,48 @@ class FormBuilderSnapshotService
         $snapshot = $this->build($form);
         $nextVersion = ((int) $form->versions()->max('version')) + 1;
 
-        $version = AssessmentFormVersion::create([
-            'assessment_form_id' => $form->id,
-            'version' => $nextVersion,
-            'status' => AssessmentFormVersion::STATUS_PUBLISHED,
-            'offline_enabled' => true,
-            'requires_scoring' => (bool) $form->requires_scoring,
-            'scoring_max_score' => $form->scoring_max_score,
-            'metadata_schema' => $snapshot['metadata_schema'],
-            'sections' => $snapshot['sections'],
-            'fields' => $snapshot['fields'],
-            'validation_rules' => $snapshot['validation_rules'],
-            'visibility_rules' => $snapshot['visibility_rules'],
-            'scoring_rules' => $snapshot['scoring_rules'],
-            'required_evidence_rules' => $snapshot['required_evidence_rules'],
-            'signature_rules' => $snapshot['signature_rules'],
-            'review_flags' => $snapshot['review_flags'],
-            'published_at' => now(),
-        ]);
+        return DB::transaction(function () use ($form, $snapshot, $nextVersion): AssessmentFormVersion {
+            $version = AssessmentFormVersion::create([
+                'assessment_form_id' => $form->id,
+                'version' => $nextVersion,
+                'status' => AssessmentFormVersion::STATUS_PUBLISHED,
+                'offline_enabled' => true,
+                'requires_scoring' => (bool) $form->requires_scoring,
+                'scoring_max_score' => $form->scoring_max_score,
+                'metadata_schema' => $snapshot['metadata_schema'],
+                'sections' => $snapshot['sections'],
+                'fields' => $snapshot['fields'],
+                'validation_rules' => $snapshot['validation_rules'],
+                'visibility_rules' => $snapshot['visibility_rules'],
+                'scoring_rules' => $snapshot['scoring_rules'],
+                'required_evidence_rules' => $snapshot['required_evidence_rules'],
+                'signature_rules' => $snapshot['signature_rules'],
+                'review_flags' => $snapshot['review_flags'],
+                'published_at' => now(),
+            ]);
 
-        $form->forceFill([
-            'current_version_id' => $version->id,
-            'status' => AssessmentForm::STATUS_PUBLISHED,
-            'published_at' => now(),
-        ])->save();
+            $form->forceFill([
+                'current_version_id' => $version->id,
+                'status' => AssessmentForm::STATUS_PUBLISHED,
+                'published_at' => now(),
+            ])->save();
 
-        return $version;
+            // Keep active work aligned with the newly published schema. Closed
+            // and archived exercises remain pinned for historical accuracy.
+            AssessmentExercise::query()
+                ->where('assessment_form_id', $form->id)
+                ->whereIn('status', [
+                    AssessmentExercise::STATUS_DRAFT,
+                    AssessmentExercise::STATUS_SCHEDULED,
+                    AssessmentExercise::STATUS_ACTIVE,
+                ])
+                ->update([
+                    'assessment_form_version_id' => $version->id,
+                    'updated_at' => now(),
+                ]);
+
+            return $version;
+        });
     }
 
     private function fieldPayload($field): array
