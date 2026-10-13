@@ -46,4 +46,11 @@ class OdkMobileAuthController
     {
         return response()->json(['success' => true, 'data' => $request->user()->load(['role', 'workspaces'])]);
     }
+
+    public function logout(Request $request): JsonResponse
+    {
+        $request->user()?->currentAccessToken()?->delete();
+
+        return response()->json(['success' => true]);
+    }
 }

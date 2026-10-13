@@ -23,7 +23,7 @@ import {
 } from 'react-native';
 import DataKitLogo from './components/DataKitLogo';
 
-type Screen = 'Home' | 'Forms' | 'Facilities' | 'Assessment' | 'Review' | 'Sync' | 'Assessments';
+type Screen = 'Home' | 'Forms' | 'Targets' | 'Assessment' | 'Review' | 'Sync' | 'Assessments';
 
 type FieldOption = {
   label: string;
@@ -366,6 +366,11 @@ type MobileAuthResponse = {
   data: { user: MobileUser; token: string };
 };
 
+type MobileAuthMeResponse = {
+  success: boolean;
+  data: MobileUser;
+};
+
 const API_BASE_URL = String(
   Constants.expoConfig?.extra?.apiBaseUrl ?? 'http://odk-web.test/api'
 ).replace(/\/$/, '');
@@ -374,6 +379,7 @@ const REQUEST_TIMEOUT_MS = 15000;
 const STORAGE_KEYS = {
   authToken: 'datakit.mobile.auth-token.v1',
   authUser: 'datakit.mobile.auth-user.v1',
+  selectedWorkspaceId: 'datakit.mobile.selected-workspace.v1',
   forms: 'nicare.forms.v1',
   formCacheMeta: 'nicare.forms.cache-meta.v1',
   assignments: 'nicare.assignments.v1',
@@ -393,7 +399,7 @@ const assessor = {
 const TAB_ITEMS: Array<{ screen: Screen; label: string; icon: keyof typeof Feather.glyphMap }> = [
   { screen: 'Home', label: 'Home', icon: 'home' },
   { screen: 'Forms', label: 'Forms', icon: 'file-text' },
-  { screen: 'Facilities', label: 'Sites', icon: 'map-pin' },
+  { screen: 'Targets', label: 'Targets', icon: 'map-pin' },
   { screen: 'Assessments', label: 'Assess', icon: 'clipboard' },
   { screen: 'Sync', label: 'Sync', icon: 'refresh-cw' },
 ];
@@ -428,103 +434,15 @@ const shadow = {
   elevation: 2,
 };
 
-const fallbackFacilities: Facility[] = [
-  {
-    id: 1,
-    code: 'NG-BOS-001',
-    name: 'Bosso PHC',
-    type: 'Primary Health Care Centre',
-    lga: 'Bosso',
-    ward: 'Maikunkele',
-    active: true,
-    accreditation_status: 'Active',
-  },
-  {
-    id: 2,
-    code: 'NG-CHA-001',
-    name: 'Chanchaga PHC',
-    type: 'Primary Health Care Centre',
-    lga: 'Chanchaga',
-    ward: 'Tungan Maje',
-    active: true,
-    accreditation_status: 'Active',
-  },
-  {
-    id: 3,
-    code: 'NG-MAI-001',
-    name: 'Maikunkele PHC',
-    type: 'Primary Health Care Centre',
-    lga: 'Bosso',
-    ward: 'Maikunkele',
-    active: true,
-    accreditation_status: 'Active',
-  },
-];
-
-const fallbackForm: FormSchema = {
-  slug: 'nicare-qa-checklist',
-  title: 'DataKit QA Checklist',
-  description: 'Offline starter schema. Download updates for the full published checklist.',
-  version: 1,
-  metadata_schema: {
-    facility_source: 'fallback',
-    requires_facility_snapshot: true,
-    requires_assessor_snapshot: true,
-    requires_device_snapshot: true,
-    requires_scoring: false,
-  },
-  requires_scoring: false,
-  scoring_max_score: null,
-  sections: [
-    { key: 'assessment_metadata', label: 'Assessment details', order: 0 },
-    { key: 'personnel', label: 'A. Personnel', order: 1 },
-    { key: 'drugs_stocks', label: 'B. Drugs and stocks', order: 2 },
-    { key: 'evidence', label: 'Evidence', order: 9 },
-    { key: 'signatures', label: 'Signatures', order: 10 },
-  ],
-  fields: [
-    { key: 'assessment_id', label: 'Assessment ID', type: 'readonly', section: 'assessment_metadata', required: true },
-    { key: 'assessment_date', label: 'Assessment date', type: 'date', section: 'assessment_metadata', required: true },
-    { key: 'assessor_id', label: 'Assessor ID', type: 'readonly', section: 'assessment_metadata', required: true },
-    { key: 'facility_id', label: 'Facility ID', type: 'readonly', section: 'assessment_metadata', required: true },
-    { key: 'facility_name', label: 'Facility name', type: 'readonly', section: 'assessment_metadata', required: true },
-    { key: 'lga_id', label: 'LGA', type: 'readonly', section: 'assessment_metadata', required: true },
-    { key: 'ward_id', label: 'Ward', type: 'readonly', section: 'assessment_metadata', required: true },
-    { key: 'gps_coordinates', label: 'GPS coordinates', type: 'gps', section: 'assessment_metadata', required: true },
-    {
-      key: 'doctors_available',
-      label: 'Does the facility have doctors?',
-      type: 'yes_no',
-      section: 'personnel',
-      required: true,
-      options: yesNoOptions(),
-    },
-    {
-      key: 'total_doctors',
-      label: 'Total number of doctors',
-      type: 'number',
-      section: 'personnel',
-      required_if: { doctors_available: 'yes' },
-      visible_if: { field: 'doctors_available', operator: 'equals', value: 'yes' },
-    },
-    {
-      key: 'drug_supply_source',
-      label: 'Main source of supply',
-      type: 'select',
-      section: 'drugs_stocks',
-      required: true,
-      options: [
-        { label: 'DMA', value: 'dma', score: 2 },
-        { label: 'NGO supply', value: 'ngo_supply', score: 1 },
-        { label: 'Local purchase', value: 'local_purchase', score: 1 },
-      ],
-    },
-    { key: 'facility_photos', label: 'Facility photos', type: 'photo_collection', section: 'evidence' },
-    { key: 'supporting_documents', label: 'Supporting documents', type: 'file_collection', section: 'evidence' },
-    { key: 'facility_representative_name', label: 'Facility representative name', type: 'text', section: 'signatures', required: true },
-    { key: 'accuracy_attestation', label: 'I confirm that the information collected is accurate', type: 'checkbox', section: 'signatures', required: true },
-  ],
-  required_evidence_rules: [{ field: 'gps_coordinates', required_on_submit: true, label: 'GPS location' }],
+// Deliberately empty: mobile data must come from the selected workspace. This
+// keeps the app usable while offline without silently reviving the old QA demo.
+const emptyFormSchema: FormSchema = {
+  slug: 'offline-unavailable',
+  title: 'No form downloaded',
+  description: 'Connect to the internet and download an assigned form to begin.',
+  version: 0,
+  sections: [],
+  fields: [],
   signature_rules: [],
 };
 
@@ -549,8 +467,7 @@ export default function App() {
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>('all');
-  const [selectedLga, setSelectedLga] = useState('All LGAs');
-  const [selectedWard, setSelectedWard] = useState('All wards');
+  const [selectedTargetType, setSelectedTargetType] = useState('all');
   const [online, setOnline] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -560,9 +477,10 @@ export default function App() {
     let mounted = true;
 
     async function bootstrap() {
-      const [storedToken, storedUser, storedForms, storedFormCacheMeta, storedAssignments, storedFacilities, storedDrafts, storedActiveDraftId, storedQueue, storedHistory] = await Promise.all([
+      const [storedToken, storedUser, storedWorkspaceId, storedForms, storedFormCacheMeta, storedAssignments, storedFacilities, storedDrafts, storedActiveDraftId, storedQueue, storedHistory] = await Promise.all([
         loadJson<string | null>(STORAGE_KEYS.authToken, null),
         loadJson<MobileUser | null>(STORAGE_KEYS.authUser, null),
+        loadJson<number | null>(STORAGE_KEYS.selectedWorkspaceId, null),
         loadJson<FormSchema[]>(STORAGE_KEYS.forms, []),
         loadJson<FormCacheMeta | null>(STORAGE_KEYS.formCacheMeta, null),
         loadJson<MobileAssignment[]>(STORAGE_KEYS.assignments, []),
@@ -577,10 +495,34 @@ export default function App() {
         return;
       }
 
-      const cachedForms = storedForms.length > 0 ? storedForms : [fallbackForm];
+      let sessionUser = storedUser;
+      let hasValidSession = Boolean(storedToken && storedUser);
+      const networkState = await NetInfo.fetch();
+      const canValidateSession = Boolean(networkState.isConnected && networkState.isInternetReachable !== false);
+
+      if (storedToken && canValidateSession) {
+        try {
+          const sessionResponse = await apiGet<MobileAuthMeResponse>('/mobile/secure/me');
+          sessionUser = sessionResponse.data;
+          hasValidSession = true;
+          await saveJson(STORAGE_KEYS.authUser, sessionUser);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '';
+          if (message.includes('(401)')) {
+            hasValidSession = false;
+            sessionUser = null;
+            await clearStoredMobileSession();
+          }
+        }
+      }
+
+      const cachedForms = storedForms.length > 0 ? storedForms : [emptyFormSchema];
       const restoredDrafts = hydrateDrafts(storedDrafts, cachedForms);
       const restoredQueue = hydrateQueue(storedQueue);
       const restoredActiveDraftId = restoredDrafts.some((draft) => draft.id === storedActiveDraftId) ? storedActiveDraftId : null;
+      const workspaceId = sessionUser?.workspaces?.some((workspace) => workspace.id === storedWorkspaceId)
+        ? storedWorkspaceId
+        : sessionUser?.workspaces?.[0]?.id ?? null;
 
       setForms(storedForms);
       setFormCacheMeta(storedFormCacheMeta);
@@ -590,11 +532,15 @@ export default function App() {
       setActiveDraftId(restoredActiveDraftId);
       setQueue(restoredQueue);
       setHistory(storedHistory);
-      setMobileUser(storedUser);
-      setMobileWorkspaces(storedUser?.workspaces ?? []);
-      setSelectedWorkspaceId(storedUser?.workspaces?.[0]?.id ?? null);
-      setSignedIn(Boolean(storedToken && storedUser));
+      setMobileUser(sessionUser);
+      setMobileWorkspaces(sessionUser?.workspaces ?? []);
+      setSelectedWorkspaceId(workspaceId);
+      setSignedIn(Boolean(storedToken && hasValidSession && sessionUser));
       setReady(true);
+
+      if (workspaceId !== null) {
+        await saveJson(STORAGE_KEYS.selectedWorkspaceId, workspaceId);
+      }
 
       if (storedDrafts.length > 0) {
         await saveJson(STORAGE_KEYS.drafts, restoredDrafts);
@@ -616,12 +562,15 @@ export default function App() {
     };
   }, []);
 
-  const form = forms[0] ?? fallbackForm;
+  const form = forms[0] ?? emptyFormSchema;
   const activeDraft = drafts.find((draft) => draft.id === activeDraftId) ?? null;
   const activeForm = activeDraft?.formSchema ?? form;
-  const latestFormForActiveDraft = activeDraft ? formForDraft(activeDraft, forms.length > 0 ? forms : [fallbackForm]) : null;
+  const latestFormForActiveDraft = activeDraft ? formForDraft(activeDraft, forms.length > 0 ? forms : [emptyFormSchema]) : null;
   const assignedExercises = useMemo(() => {
-    return uniqueExercisesFromFacilities(facilities);
+    return uniqueExercisesFromAssignments(assignments);
+  }, [assignments]);
+  const targetTypes = useMemo(() => {
+    return ['all', ...unique(facilities.map((target) => target.target_type ?? target.type ?? 'target'))];
   }, [facilities]);
   const filteredFacilities = useMemo(() => {
     return facilities.filter((facility) => {
@@ -631,15 +580,11 @@ export default function App() {
         facility.name.toLowerCase().includes(term) ||
         String(facility.code ?? facility.id).toLowerCase().includes(term);
       const matchesExercise = selectedExerciseId === 'all' || String(facility.exercise_id) === selectedExerciseId;
-      const matchesLga = selectedLga === 'All LGAs' || facility.lga === selectedLga;
-      const matchesWard = selectedWard === 'All wards' || facility.ward === selectedWard;
+      const matchesTargetType = selectedTargetType === 'all' || (facility.target_type ?? facility.type ?? 'target') === selectedTargetType;
 
-      return matchesSearch && matchesExercise && matchesLga && matchesWard;
+      return matchesSearch && matchesExercise && matchesTargetType;
     });
-  }, [facilities, search, selectedExerciseId, selectedLga, selectedWard]);
-
-  const lgas = useMemo(() => ['All LGAs', ...unique(facilities.map((facility) => facility.lga).filter(Boolean) as string[])], [facilities]);
-  const wards = useMemo(() => ['All wards', ...unique(facilities.map((facility) => facility.ward).filter(Boolean) as string[])], [facilities]);
+  }, [facilities, search, selectedExerciseId, selectedTargetType]);
   const validation = activeDraft ? validateDraft(activeForm, activeDraft) : emptyValidationResult();
   const activeAssessor = mobileUser
     ? { id: mobileUser.staff_code || String(mobileUser.id), name: mobileUser.name, email: mobileUser.email }
@@ -655,9 +600,11 @@ export default function App() {
       });
       await saveJson(STORAGE_KEYS.authToken, response.data.token);
       await saveJson(STORAGE_KEYS.authUser, response.data.user);
+      const workspaceId = response.data.user.workspaces?.[0]?.id ?? null;
+      await saveJson(STORAGE_KEYS.selectedWorkspaceId, workspaceId);
       setMobileUser(response.data.user);
       setMobileWorkspaces(response.data.user.workspaces ?? []);
-      setSelectedWorkspaceId(response.data.user.workspaces?.[0]?.id ?? null);
+      setSelectedWorkspaceId(workspaceId);
       setSignedIn(true);
       setMobilePassword('');
       setLastMessage('Signed in. Download your assigned work when you are online.');
@@ -668,11 +615,36 @@ export default function App() {
     }
   }
 
+  async function signOutMobile() {
+    try {
+      await apiPost<{ success: boolean }>('/mobile/secure/logout', {});
+    } catch {
+      // Local sign-out still protects the device when the network is unavailable.
+    } finally {
+      await clearStoredMobileSession();
+      setSignedIn(false);
+      setMobileUser(null);
+      setMobileWorkspaces([]);
+      setSelectedWorkspaceId(null);
+      setForms([]);
+      setFormCacheMeta(null);
+      setAssignments([]);
+      setFacilities([]);
+      setDrafts([]);
+      setQueue([]);
+      setHistory([]);
+      setActiveDraftId(null);
+      setScreen('Home');
+      setLastMessage('Signed out. Sign in to access a workspace.');
+    }
+  }
+
   async function switchMobileWorkspace(workspaceId: number) {
     if (workspaceId === selectedWorkspaceId) return;
     try {
       await apiPost(`/auth/workspaces/${workspaceId}/switch`, {});
       setSelectedWorkspaceId(workspaceId);
+      await saveJson(STORAGE_KEYS.selectedWorkspaceId, workspaceId);
       setAssignments([]);
       setFacilities([]);
       await saveJson(STORAGE_KEYS.assignments, []);
@@ -694,7 +666,7 @@ export default function App() {
       const downloadedForms = (assignmentResponse.data.forms ?? [])
         .map(mapPublishedForm)
         .filter((item): item is FormSchema => item !== null);
-      const downloadedFacilities = assignmentsToFacilities(downloadedAssignments, assignmentResponse.data.facilities ?? []);
+      const downloadedFacilities = assignmentsToTargets(downloadedAssignments);
       const returnedDrafts = downloadedAssignments
         .map((assignment) => draftFromReturnedAssignment(assignment, downloadedForms))
         .filter((draft): draft is DraftAssessment => draft !== null);
@@ -730,13 +702,13 @@ export default function App() {
         downloadedForms,
         downloadedFacilities.length,
         downloadedAssignments.length,
-        assignmentResponse.data.exercises?.length ?? uniqueExercisesFromFacilities(downloadedFacilities).length
+        assignmentResponse.data.exercises?.length ?? uniqueExercisesFromAssignments(downloadedAssignments).length
       );
       setFormCacheMeta(nextMeta);
       await saveJson(STORAGE_KEYS.formCacheMeta, nextMeta);
 
       setLastMessage(
-        `Downloaded ${downloadedAssignments.length} assignment(s), ${downloadedForms.length} form(s), and ${downloadedFacilities.length} assigned facilities.`
+        `Downloaded ${downloadedAssignments.length} assignment(s), ${downloadedForms.length} form(s), and ${downloadedFacilities.length} assigned target(s).`
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to download updates.';
@@ -770,7 +742,7 @@ export default function App() {
 
     const now = new Date().toISOString();
     const assessmentId = `NIC-LOCAL-${Date.now()}`;
-    const selectedForm = formForFacility(facility, forms.length > 0 ? forms : [fallbackForm]) ?? form;
+    const selectedForm = formForFacility(facility, forms.length > 0 ? forms : [emptyFormSchema]) ?? form;
     const formSnapshot = cloneFormSchema(selectedForm);
     const nextDraft: DraftAssessment = {
       id: `draft-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
@@ -1134,7 +1106,7 @@ export default function App() {
     existingRemoteUuid?: string,
     previousAttachmentStatus?: QueueItem['attachmentStatus']
   ): Promise<{ uuid?: string; attachmentsUploaded: number }> {
-    const draftForm = draft.formSchema ?? formForDraft(draft, forms.length > 0 ? forms : [fallbackForm]) ?? fallbackForm;
+    const draftForm = draft.formSchema ?? formForDraft(draft, forms.length > 0 ? forms : [emptyFormSchema]) ?? emptyFormSchema;
     const localValidation = validateDraft(draftForm, draft);
     const signatureAttachments = await createSignatureAttachments(draft);
     const submissionAttachments = [...draft.attachments, ...signatureAttachments];
@@ -1310,7 +1282,7 @@ export default function App() {
           <PrimaryButton label={authSubmitting ? 'Signing in...' : 'Sign in'} onPress={signInMobile} disabled={authSubmitting || !mobileEmail.trim() || !mobilePassword} />
           <View style={styles.noticeCard}>
             <Text style={styles.noticeIcon}>Wi-Fi</Text>
-            <Text style={styles.noticeText}>Connect to download assigned forms and facility references.</Text>
+            <Text style={styles.noticeText}>Connect to download assigned forms and target references.</Text>
           </View>
         </View>
       </SafeAreaView>
@@ -1325,7 +1297,13 @@ export default function App() {
           {screen !== 'Home' ? (
             <View style={styles.header}>
               <Brand />
-              <StatusPill label={online ? 'Online' : 'Offline'} tone={online ? 'success' : 'warning'} />
+              <View style={styles.headerActions}>
+                <StatusPill label={online ? 'Online' : 'Offline'} tone={online ? 'success' : 'warning'} />
+                <Pressable style={styles.headerLogout} onPress={signOutMobile}>
+                  <Feather name="log-out" size={14} color={colors.green800} />
+                  <Text style={styles.headerLogoutText}>Sign out</Text>
+                </Pressable>
+              </View>
             </View>
           ) : null}
 
@@ -1340,8 +1318,9 @@ export default function App() {
               lastMessage={lastMessage}
               refreshing={refreshing}
               onRefresh={refreshReferenceData}
-              onStart={() => setScreen('Facilities')}
+              onStart={() => setScreen('Targets')}
               onSync={() => setScreen('Sync')}
+              onLogout={signOutMobile}
               assessorName={activeAssessor.name}
               workspaces={mobileWorkspaces}
               selectedWorkspaceId={selectedWorkspaceId}
@@ -1366,20 +1345,17 @@ export default function App() {
             />
           )}
 
-          {screen === 'Facilities' && (
+          {screen === 'Targets' && (
             <FacilitiesScreen
               facilities={filteredFacilities}
               exercises={assignedExercises}
               selectedExerciseId={selectedExerciseId}
-              lgas={lgas}
-              wards={wards}
+              targetTypes={targetTypes}
               search={search}
-              selectedLga={selectedLga}
-              selectedWard={selectedWard}
+              selectedTargetType={selectedTargetType}
               onExercise={setSelectedExerciseId}
               onSearch={setSearch}
-              onLga={setSelectedLga}
-              onWard={setSelectedWard}
+              onTargetType={setSelectedTargetType}
               onSelect={createDraft}
             />
           )}
@@ -1463,6 +1439,7 @@ function HomeScreen({
   selectedWorkspaceId,
   onWorkspace,
   onOpenDraft,
+  onLogout,
 }: {
   form: FormSchema;
   assignments: MobileAssignment[];
@@ -1480,10 +1457,11 @@ function HomeScreen({
   selectedWorkspaceId: number | null;
   onWorkspace: (workspaceId: number) => void;
   onOpenDraft: (draftId: string) => void;
+  onLogout: () => void;
 }) {
   const activeDraft = drafts[0];
-  const roundFacilities = assignments
-    .map((assignment) => assignment.facility)
+  const roundTargets = assignments
+    .map(assignmentToTarget)
     .filter(Boolean)
     .slice(0, 3) as Facility[];
 
@@ -1491,7 +1469,13 @@ function HomeScreen({
     <>
       <View style={styles.fieldTopBar}>
         <DataKitLogo />
-        <StatusPill label="Online" tone="success" />
+        <View style={styles.headerActions}>
+          <StatusPill label="Online" tone="success" />
+          <Pressable style={styles.headerLogout} onPress={onLogout}>
+            <Feather name="log-out" size={14} color={colors.green800} />
+            <Text style={styles.headerLogoutText}>Sign out</Text>
+          </Pressable>
+        </View>
       </View>
 
       {workspaces.length > 1 ? (
@@ -1519,8 +1503,8 @@ function HomeScreen({
           <Text style={styles.featureEyebrow}>{activeDraft ? 'Draft in progress' : 'Ready for assessment'}</Text>
           <Text style={styles.featureSaved}>{activeDraft ? `Saved ${formatTime(activeDraft.updatedAt)}` : `${assignments.length} assigned`}</Text>
         </View>
-        <Text style={styles.featureTitle}>{activeDraft?.facility.name ?? roundFacilities[0]?.name ?? 'Start a facility assessment'}</Text>
-        <Text style={styles.featureSubtitle}>{activeDraft ? 'Continue draft' : 'Choose an assigned facility'}</Text>
+        <Text style={styles.featureTitle}>{activeDraft?.facility.name ?? roundTargets[0]?.name ?? 'Start a target assessment'}</Text>
+        <Text style={styles.featureSubtitle}>{activeDraft ? 'Continue draft' : 'Choose an assigned target'}</Text>
         <View style={styles.featureActionRow}>
           <Text style={styles.featureActionText}>{activeDraft ? 'Continue draft' : 'Start first assessment'}</Text>
           <View style={styles.featureActionIcon}>
@@ -1544,19 +1528,19 @@ function HomeScreen({
         <Text style={styles.roundHint}>{assignments.length} stops</Text>
       </View>
       <View style={styles.roundList}>
-        {roundFacilities.map((facility, index) => (
-          <Pressable key={`${facility.id}-${facility.assignment_uuid ?? index}`} style={styles.roundRow} onPress={onStart}>
+        {roundTargets.map((target, index) => (
+          <Pressable key={`${target.id}-${target.assignment_uuid ?? index}`} style={styles.roundRow} onPress={onStart}>
             <View style={styles.roundNumber}>
               <Text style={styles.roundNumberText}>{String(index + 1)}</Text>
             </View>
             <View style={styles.flexOne}>
-              <Text style={styles.roundFacility}>{facility.name}</Text>
-              <Text style={styles.roundMeta}>{formatRoundMeta(facility)}</Text>
+              <Text style={styles.roundFacility}>{target.name}</Text>
+              <Text style={styles.roundMeta}>{formatRoundMeta(target)}</Text>
             </View>
             <Feather name="chevron-right" size={18} color={colors.green800} />
           </Pressable>
         ))}
-        {roundFacilities.length === 0 ? <EmptyState label="No assigned facilities downloaded yet." /> : null}
+        {roundTargets.length === 0 ? <EmptyState label="No assigned targets downloaded yet." /> : null}
       </View>
 
       <View style={styles.offlinePackCard}>
@@ -1567,7 +1551,7 @@ function HomeScreen({
           </View>
           <StatusPill label={`${assignments.length} work`} tone="success" />
         </View>
-        <Text style={styles.offlinePackMeta}>{assignments.length} assignments - {formsCountLabel(form)} - {roundFacilities.length} facilities</Text>
+        <Text style={styles.offlinePackMeta}>{assignments.length} assignments - {formsCountLabel(form)} - {roundTargets.length} targets</Text>
         <Text style={styles.bannerText}>{lastMessage}</Text>
         <SecondaryButton label={refreshing ? 'Downloading...' : 'Download updates'} icon="download-cloud" onPress={onRefresh} disabled={refreshing} />
       </View>
@@ -1604,7 +1588,7 @@ function FormsScreen({
     <>
       <View style={styles.pageIntroCard}>
         <Text style={styles.screenTitle}>Forms and downloads</Text>
-        <Text style={styles.muted}>Assigned forms, exercises, and facilities are cached for offline assessment.</Text>
+        <Text style={styles.muted}>Assigned forms, exercises, and targets are cached for offline assessment.</Text>
       </View>
       {cacheMeta ? (
         <View style={styles.readyPanel}>
@@ -1616,7 +1600,7 @@ function FormsScreen({
           </View>
           <Text style={styles.readyTitle}>Last download: {formatTime(cacheMeta.downloaded_at)}</Text>
           <Text style={styles.muted}>
-            {cacheMeta.assignments_count ?? assignments.length} assignment(s), {cacheMeta.exercises_count ?? exercises.length} exercise(s), {cacheMeta.forms_count} form(s), {cacheMeta.facilities_count} assigned facilities cached from {cacheMeta.api_base_url}
+            {cacheMeta.assignments_count ?? assignments.length} assignment(s), {cacheMeta.exercises_count ?? exercises.length} exercise(s), {cacheMeta.forms_count} form(s), {cacheMeta.facilities_count} assigned target(s) cached from {cacheMeta.api_base_url}
           </Text>
         </View>
       ) : null}
@@ -1651,8 +1635,8 @@ function FormsScreen({
           <Feather name="map" size={18} color={colors.green800} />
         </View>
         <View style={styles.flexOne}>
-          <Text style={styles.cardTitle}>Assigned facility directory</Text>
-          <Text style={styles.muted}>{facilities.length} facilities scoped to your assignments</Text>
+          <Text style={styles.cardTitle}>Assigned target directory</Text>
+          <Text style={styles.muted}>{facilities.length} targets scoped to your assignments</Text>
         </View>
       </View>
 
@@ -1674,36 +1658,30 @@ function FacilitiesScreen({
   facilities,
   exercises,
   selectedExerciseId,
-  lgas,
-  wards,
+  targetTypes,
   search,
-  selectedLga,
-  selectedWard,
+  selectedTargetType,
   onExercise,
   onSearch,
-  onLga,
-  onWard,
+  onTargetType,
   onSelect,
 }: {
   facilities: Facility[];
   exercises: MobileExercise[];
   selectedExerciseId: string;
-  lgas: string[];
-  wards: string[];
+  targetTypes: string[];
   search: string;
-  selectedLga: string;
-  selectedWard: string;
+  selectedTargetType: string;
   onExercise: (value: string) => void;
   onSearch: (value: string) => void;
-  onLga: (value: string) => void;
-  onWard: (value: string) => void;
+  onTargetType: (value: string) => void;
   onSelect: (facility: Facility) => void;
 }) {
   return (
     <>
       <View style={styles.pageHeading}>
-        <Text style={styles.screenTitle}>Select facility</Text>
-        <Text style={styles.muted}>Choose an assigned facility to start an assessment.</Text>
+        <Text style={styles.screenTitle}>Select target</Text>
+        <Text style={styles.muted}>Choose an assigned target to start an assessment.</Text>
       </View>
 
       <View style={styles.filterPanel}>
@@ -1723,28 +1701,22 @@ function FacilitiesScreen({
           <Feather name="search" size={16} color={colors.slate500} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search for a facility"
+            placeholder="Search for a target"
             value={search}
             onChangeText={onSearch}
             placeholderTextColor={colors.slate500}
           />
         </View>
-        <Text style={styles.filterLabel}>LGA</Text>
+        <Text style={styles.filterLabel}>Target type</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          {lgas.map((lga) => (
-            <FilterChip key={lga} label={lga} active={selectedLga === lga} onPress={() => onLga(lga)} />
-          ))}
-        </ScrollView>
-        <Text style={styles.filterLabel}>Ward</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          {wards.map((ward) => (
-            <FilterChip key={ward} label={ward} active={selectedWard === ward} onPress={() => onWard(ward)} />
+          {targetTypes.map((type) => (
+            <FilterChip key={type} label={type === 'all' ? 'All types' : formatTargetType(type)} active={selectedTargetType === type} onPress={() => onTargetType(type)} />
           ))}
         </ScrollView>
       </View>
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Assigned facilities</Text>
+        <Text style={styles.sectionTitle}>Assigned targets</Text>
         <Text style={styles.sectionHint}>{facilities.length} found</Text>
       </View>
       {facilities.map((facility) => (
@@ -1757,15 +1729,15 @@ function FacilitiesScreen({
               <Text style={styles.cardTitle}>{facility.name}</Text>
               <StatusPill label={facility.accreditation_status ?? 'Active'} tone="success" />
             </View>
-            <Text style={styles.muted}>{facility.type ?? 'Health facility'}</Text>
-            <Text style={styles.metaText}>{facility.lga ?? 'Unknown LGA'} LGA - {facility.ward ?? 'Unknown ward'}</Text>
+            <Text style={styles.muted}>{formatTargetType(facility.target_type ?? facility.type ?? 'target')}</Text>
+            <Text style={styles.metaText}>{facility.lga || facility.ward ? [facility.lga, facility.ward].filter(Boolean).join(' - ') : 'No location details'}</Text>
             {facility.exercise_name ? (
               <Text style={styles.metaText}>{facility.exercise_name} - {facility.exercise_starts_at ?? 'open'} to {facility.exercise_ends_at ?? 'close'}</Text>
             ) : null}
           </View>
         </Pressable>
       ))}
-      {facilities.length === 0 && <EmptyState label="No facility matches this filter." />}
+      {facilities.length === 0 && <EmptyState label="No target matches this filter." />}
     </>
   );
 }
@@ -2917,7 +2889,7 @@ function draftFromReturnedAssignment(assignment: MobileAssignment, availableForm
     return null;
   }
 
-  const form = formForFacility(facility, availableForms) ?? availableForms[0] ?? fallbackForm;
+    const form = formForFacility(facility, availableForms) ?? availableForms[0] ?? emptyFormSchema;
   const formSnapshot = cloneFormSchema(form);
   const answers = { ...(submission.answers ?? {}) };
   const returnedAt = submission.submitted_at ?? new Date().toISOString();
@@ -2965,7 +2937,7 @@ function draftFromReturnedAssignment(assignment: MobileAssignment, availableForm
   };
 }
 
-function assignmentsToFacilities(assignments: MobileAssignment[], legacyFacilities: Facility[]): Facility[] {
+function assignmentsToTargets(assignments: MobileAssignment[]): Facility[] {
   const normalized = assignments.map((assignment): Facility | null => {
     if (assignment.facility) {
       return assignment.facility;
@@ -3020,7 +2992,7 @@ function assignmentsToFacilities(assignments: MobileAssignment[], legacyFaciliti
     return null;
   }).filter((facility): facility is Facility => facility !== null);
 
-  return normalized.length > 0 ? normalized : legacyFacilities;
+  return normalized;
 }
 
 function mapPublishedForm(record: PublishedFormResponse['data'][number]): FormSchema | null {
@@ -3097,24 +3069,15 @@ function buildFormCacheMeta(forms: FormSchema[], facilitiesCount: number, assign
   };
 }
 
-function uniqueExercisesFromFacilities(facilities: Facility[]): MobileExercise[] {
+function uniqueExercisesFromAssignments(assignments: MobileAssignment[]): MobileExercise[] {
   const byId = new Map<number, MobileExercise>();
-  facilities.forEach((facility) => {
-    if (!facility.exercise_id || byId.has(facility.exercise_id)) {
+  assignments.forEach((assignment) => {
+    const exercise = assignment.exercise;
+    if (!exercise || byId.has(exercise.id)) {
       return;
     }
 
-    byId.set(facility.exercise_id, {
-      id: facility.exercise_id,
-      uuid: facility.exercise_uuid ?? String(facility.exercise_id),
-      name: facility.exercise_name ?? facility.exercise_code ?? `Exercise ${facility.exercise_id}`,
-      code: facility.exercise_code,
-      status: facility.exercise_status ?? 'assigned',
-      starts_at: facility.exercise_starts_at,
-      ends_at: facility.exercise_ends_at,
-      form_slug: facility.form_slug,
-      form_version_id: facility.form_version_id,
-    });
+    byId.set(exercise.id, exercise);
   });
 
   return Array.from(byId.values()).sort((a, b) => (a.starts_at ?? '').localeCompare(b.starts_at ?? '') || a.name.localeCompare(b.name));
@@ -3129,7 +3092,7 @@ function hydrateDrafts(drafts: DraftAssessment[], availableForms: FormSchema[]):
       };
     }
 
-    const recoveredForm = formForDraft(draft, availableForms) ?? availableForms[0] ?? fallbackForm;
+    const recoveredForm = formForDraft(draft, availableForms) ?? availableForms[0] ?? emptyFormSchema;
 
     return {
       ...draft,

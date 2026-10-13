@@ -221,6 +221,12 @@ class OdkWorkspaceTest extends TestCase
 
         $this->assertCount(2, $field['options']);
 
+        $this->withToken($token)->postJson('/api/forms/' . $form['slug'] . '/fields', [
+            'label' => 'Second question',
+            'type' => 'text',
+            'section_key' => $section['key'],
+        ])->assertCreated();
+
         $this->withToken($token)->patchJson('/api/forms/' . $form['slug'] . '/fields/' . $field['id'], [
             'label' => 'Available?',
             'type' => 'yes_no',
@@ -229,7 +235,9 @@ class OdkWorkspaceTest extends TestCase
                 ['label' => 'Yes', 'value' => 'yes'],
                 ['label' => 'No', 'value' => 'no'],
             ],
-        ])->assertOk()->assertJsonCount(2, 'data.options');
+        ])->assertOk()
+            ->assertJsonCount(2, 'data.options')
+            ->assertJsonPath('data.sort_order', 1);
 
         $this->assertSame(
             2,

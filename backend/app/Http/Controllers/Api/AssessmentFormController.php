@@ -333,7 +333,9 @@ class AssessmentFormController
             'placeholder' => $data['placeholder'] ?? null,
             'required' => (bool) ($data['required'] ?? false),
             'readonly' => (bool) ($data['readonly'] ?? false),
-            'sort_order' => $data['sort_order'] ?? (((int) $form->fields()->max('sort_order')) + 1),
+            'sort_order' => $data['sort_order'] ?? ($isNew
+                ? (((int) $form->fields()->max('sort_order')) + 1)
+                : $field->sort_order),
             'group' => $data['group'] ?? null,
             'validation_rules' => $data['validation_rules'] ?? [],
             'display_logic' => $data['display_logic'] ?? null,

@@ -301,11 +301,16 @@ const answerRows = computed(() => {
   const submission = selectedSubmission.value;
   if (!submission?.answers) return [];
 
+  const formFields = submission.form_version?.fields ?? [];
+  const formSections = submission.form_version?.sections ?? [];
+
   return submission.answers.map((answer) => {
     const key = String(answer.field_key ?? 'answer');
     const field = submission.form_version?.fields?.find((candidate) => candidate.key === key);
     const sectionKey = String(answer.section_key ?? field?.section ?? 'general');
     const section = submission.form_version?.sections?.find((candidate) => candidate.key === sectionKey);
+    const sectionIndex = formSections.findIndex((candidate) => candidate.key === sectionKey);
+    const fieldIndex = formFields.findIndex((candidate) => candidate.key === key);
     return {
       key,
       label: field?.label || titleCase(key),
@@ -314,19 +319,34 @@ const answerRows = computed(() => {
       score: answer.score ?? null,
       sectionKey,
       sectionLabel: section?.label || titleCase(sectionKey),
+      sectionOrder: sectionIndex >= 0 ? sectionIndex : Number.MAX_SAFE_INTEGER,
+      fieldOrder: fieldIndex >= 0 ? fieldIndex : Number.MAX_SAFE_INTEGER,
     };
   });
 });
 const reviewAnswerRows = computed(() => answerRows.value.filter((answer) => answer.requiresReview));
 const nonSignatureAnswerRows = computed(() => answerRows.value.filter((answer) => !answer.key.includes('signature') && !answer.key.includes('attestation')));
 const answerSections = computed(() => {
-  const groups = new Map<string, { key: string; label: string; answers: typeof nonSignatureAnswerRows.value }>();
+  const groups = new Map<string, { key: string; label: string; order: number; answers: typeof nonSignatureAnswerRows.value }>();
   nonSignatureAnswerRows.value.forEach((answer) => {
-    const section = groups.get(answer.sectionKey) ?? { key: answer.sectionKey, label: answer.sectionLabel, answers: [] };
+    const section = groups.get(answer.sectionKey) ?? {
+      key: answer.sectionKey,
+      label: answer.sectionLabel,
+      order: answer.sectionOrder,
+      answers: [],
+    };
     section.answers.push(answer);
     groups.set(answer.sectionKey, section);
   });
-  return [...groups.values()];
+
+  return [...groups.values()]
+    .map((section) => ({
+      ...section,
+      answers: [...section.answers].sort((first, second) => (
+        first.fieldOrder - second.fieldOrder || first.key.localeCompare(second.key)
+      )),
+    }))
+    .sort((first, second) => first.order - second.order || first.key.localeCompare(second.key));
 });
 const isAnswerSectionExpanded = (key: string) => expandedAnswerSections.value[key] !== false;
 const toggleAnswerSection = (key: string) => {

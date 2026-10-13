@@ -113,6 +113,7 @@ Route::post('/mobile/submissions/{submission:uuid}/attachments', [AssessmentSubm
 Route::post('/mobile/auth/login', [OdkMobileAuthController::class, 'login']);
 Route::middleware(['auth:sanctum', ResolveOdkWorkspace::class])->prefix('mobile/secure')->group(function (): void {
     Route::get('/me', [OdkMobileAuthController::class, 'me']);
+    Route::post('/logout', [OdkMobileAuthController::class, 'logout']);
     Route::get('/forms/published', [AssessmentFormController::class, 'published']);
     Route::get('/reference-data', [MobileReferenceController::class, 'index']);
     Route::get('/assignments', [MobileAssignmentController::class, 'index']);
