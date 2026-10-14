@@ -222,6 +222,14 @@ export const updateFormField = async (slug: string, fieldId: number, payload: Pa
   return response.data;
 };
 
+export const reorderFormFields = async (
+  slug: string,
+  payload: { section_key?: string | null; field_ids: number[] },
+): Promise<AssessmentForm> => {
+  const response = await writeJson<ApiEnvelope<AssessmentForm>>(`/api/forms/${slug}/fields/order`, 'PUT', payload);
+  return response.data;
+};
+
 export const deleteFormField = async (slug: string, fieldId: number): Promise<void> => {
   await writeJson<ApiEnvelope<{ success: boolean }>>(`/api/forms/${slug}/fields/${fieldId}`, 'DELETE');
 };
@@ -232,6 +240,11 @@ export const deleteFormSection = async (slug: string, sectionId: number): Promis
 
 export const publishAssessmentForm = async (slug: string): Promise<AssessmentForm> => {
   const response = await writeJson<ApiEnvelope<AssessmentForm>>(`/api/forms/${slug}/publish`, 'POST');
+  return response.data;
+};
+
+export const repairAssessmentFormFieldOrder = async (slug: string): Promise<AssessmentForm> => {
+  const response = await writeJson<ApiEnvelope<AssessmentForm>>(`/api/forms/${slug}/repair-field-order`, 'POST');
   return response.data;
 };
 

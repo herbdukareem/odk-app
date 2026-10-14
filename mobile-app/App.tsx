@@ -47,6 +47,7 @@ type FormField = {
   label: string;
   type: string;
   section: string;
+  order?: number;
   required?: boolean;
   readonly?: boolean;
   rules?: string[];
@@ -3059,6 +3060,12 @@ function normalizeSections(sections: FormSection[]): FormSection[] {
 function normalizeFields(fields: FormField[]): FormField[] {
   return [...fields]
     .filter((field) => field.key && field.label && field.type && field.type !== 'signature')
+    .map((field, index) => ({ field, index }))
+    .sort((left, right) => (
+      (Number.isFinite(Number(left.field.order)) ? Number(left.field.order) : left.index)
+      - (Number.isFinite(Number(right.field.order)) ? Number(right.field.order) : right.index)
+    ))
+    .map(({ field }) => field)
     .map((field) => ({
       ...field,
       section: field.section || 'assessment_metadata',

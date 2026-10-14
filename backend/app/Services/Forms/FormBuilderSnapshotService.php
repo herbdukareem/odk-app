@@ -60,10 +60,11 @@ class FormBuilderSnapshotService
 
     public function publish(AssessmentForm $form): AssessmentFormVersion
     {
-        $snapshot = $this->build($form);
-        $nextVersion = ((int) $form->versions()->max('version')) + 1;
+        return DB::transaction(function () use ($form): AssessmentFormVersion {
+            $form->refresh();
+            $snapshot = $this->build($form);
+            $nextVersion = ((int) $form->versions()->max('version')) + 1;
 
-        return DB::transaction(function () use ($form, $snapshot, $nextVersion): AssessmentFormVersion {
             $version = AssessmentFormVersion::create([
                 'assessment_form_id' => $form->id,
                 'version' => $nextVersion,
@@ -107,12 +108,42 @@ class FormBuilderSnapshotService
         });
     }
 
+    public function repairFieldOrder(AssessmentForm $form): int
+    {
+        return DB::transaction(fn (): int => $this->resequenceFieldOrder($form));
+    }
+
+    private function resequenceFieldOrder(AssessmentForm $form): int
+    {
+        $fields = $form->fields()
+            ->reorder('id')
+            ->get();
+        $repaired = 0;
+
+        foreach ($fields->groupBy(fn ($field) => $field->assessment_form_section_id ?? 0) as $sectionFields) {
+            foreach ($sectionFields->values() as $index => $field) {
+                $sortOrder = $index + 1;
+                if ((int) $field->sort_order !== $sortOrder) {
+                    $field->updateQuietly(['sort_order' => $sortOrder]);
+                    $repaired++;
+                }
+            }
+        }
+
+        if ($repaired > 0 && $form->status === AssessmentForm::STATUS_PUBLISHED) {
+            $form->forceFill(['status' => AssessmentForm::STATUS_DRAFT])->save();
+        }
+
+        return $repaired;
+    }
+
     private function fieldPayload($field): array
     {
         $payload = [
             'key' => $field->key,
             'label' => $field->label,
             'type' => $field->type,
+            'order' => (int) $field->sort_order,
             'section' => $field->section?->key,
             'required' => $field->required,
             'readonly' => $field->readonly,

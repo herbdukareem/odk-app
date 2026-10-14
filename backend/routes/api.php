@@ -93,9 +93,11 @@ Route::middleware(['auth:sanctum', ResolveOdkWorkspace::class])->group(function 
     Route::post('/forms/{form:slug}/sections', [AssessmentFormController::class, 'storeSection']);
     Route::delete('/forms/{form:slug}/sections/{section}', [AssessmentFormController::class, 'destroySection']);
     Route::post('/forms/{form:slug}/fields', [AssessmentFormController::class, 'storeField']);
+    Route::put('/forms/{form:slug}/fields/order', [AssessmentFormController::class, 'reorderFields']);
     Route::patch('/forms/{form:slug}/fields/{field}', [AssessmentFormController::class, 'updateField']);
     Route::delete('/forms/{form:slug}/fields/{field}', [AssessmentFormController::class, 'destroyField']);
     Route::post('/forms/{form:slug}/rules/test', [AssessmentFormController::class, 'testRules']);
+    Route::post('/forms/{form:slug}/repair-field-order', [AssessmentFormController::class, 'repairFieldOrder']);
     Route::post('/forms/{form:slug}/publish', [AssessmentFormController::class, 'publish']);
     Route::get('/submissions', [AssessmentSubmissionController::class, 'index']);
     Route::get('/submissions/{submission:uuid}', [AssessmentSubmissionController::class, 'show']);

@@ -11,6 +11,7 @@ use App\Models\OdkTarget;
 use App\Services\Saas\OdkSubscriptionService;
 use App\Services\Forms\FormBuilderSnapshotService;
 use App\Services\Forms\FormRuleTester;
+use App\Support\OdkWorkspaceContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -245,6 +246,72 @@ class AssessmentFormController
         return response()->json(['success' => true, 'data' => $field->load('options')]);
     }
 
+    public function reorderFields(Request $request, AssessmentForm $form): JsonResponse
+    {
+        $this->assertManager($request);
+
+        $data = $request->validate([
+            'section_key' => ['nullable', 'string', 'max:120'],
+            'field_ids' => ['required', 'array', 'min:1'],
+            'field_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $section = null;
+        if (!empty($data['section_key'])) {
+            $section = $form->sections()->where('key', $data['section_key'])->firstOrFail();
+        }
+
+        $fieldQuery = $form->fields();
+        if ($section) {
+            $fieldQuery->where('assessment_form_section_id', $section->id);
+        } else {
+            $fieldQuery->whereNull('assessment_form_section_id');
+        }
+
+        $fieldIds = array_map('intval', $data['field_ids']);
+        $storedFieldIds = $fieldQuery->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+        $requestedFieldIds = collect($fieldIds)->sort()->values()->all();
+
+        abort_unless(
+            $storedFieldIds === $requestedFieldIds,
+            422,
+            'The field order is out of date. Refresh the form and try again.'
+        );
+
+        DB::transaction(function () use ($form, $section, $fieldIds): void {
+            $fields = $form->fields()
+                ->when(
+                    $section,
+                    fn ($query) => $query->where('assessment_form_section_id', $section->id),
+                    fn ($query) => $query->whereNull('assessment_form_section_id')
+                )
+                ->whereIn('id', $fieldIds)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            foreach ($fieldIds as $index => $fieldId) {
+                $field = $fields->get($fieldId);
+                if ($field && (int) $field->sort_order !== $index + 1) {
+                    $field->updateQuietly(['sort_order' => $index + 1]);
+                }
+            }
+
+            $this->markDraft($form);
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $form->fresh()->load([
+                'currentVersion',
+                'versions' => fn ($query) => $query->orderByDesc('version'),
+                'sections.fields.options',
+                'fields.options',
+                'builderRules.field',
+            ]),
+        ]);
+    }
+
     public function destroyField(AssessmentForm $form, AssessmentFormField $field): JsonResponse
     {
         abort_unless((int) $field->assessment_form_id === (int) $form->id, 404);
@@ -296,6 +363,23 @@ class AssessmentFormController
             'success' => true,
             'data' => $form->fresh()->load(['currentVersion', 'versions' => fn ($query) => $query->orderByDesc('version')]),
             'version' => $version,
+        ]);
+    }
+
+    public function repairFieldOrder(AssessmentForm $form, FormBuilderSnapshotService $snapshots): JsonResponse
+    {
+        $repairedFields = $snapshots->repairFieldOrder($form);
+
+        return response()->json([
+            'success' => true,
+            'repaired_fields' => $repairedFields,
+            'data' => $form->fresh()->load([
+                'currentVersion',
+                'versions' => fn ($query) => $query->orderByDesc('version'),
+                'sections.fields.options',
+                'fields.options',
+                'builderRules.field',
+            ]),
         ]);
     }
 
@@ -430,6 +514,15 @@ class AssessmentFormController
         if ($form->status === AssessmentForm::STATUS_PUBLISHED) {
             $form->forceFill(['status' => AssessmentForm::STATUS_DRAFT])->save();
         }
+    }
+
+    private function assertManager(Request $request): void
+    {
+        abort_unless(
+            app(OdkWorkspaceContext::class)->userCanManage($request->user()),
+            403,
+            'Only workspace owners and admins can reorder form fields.'
+        );
     }
 
     private function uniqueSlug(string $title): string

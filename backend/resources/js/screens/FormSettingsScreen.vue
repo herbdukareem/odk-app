@@ -118,21 +118,59 @@
             </div>
             <div class="action-row builder-actions">
               <QdsButton icon="plus" variant="secondary" @click="showSectionCreator = true">Add section</QdsButton>
+              <QdsButton icon="refresh" variant="secondary" @click="repairAndPublishFieldOrder">Repair order & publish</QdsButton>
               <QdsButton icon="plus" variant="secondary" @click="startAddField">Add field</QdsButton>
             </div>
           </div>
 
           <div class="builder-field-list">
-            <div v-for="field in visibleBuilderFields" :key="field.key" class="builder-field-row">
+            <div
+              v-for="(field, index) in visibleBuilderFields"
+              :key="field.key"
+              :class="[
+                'builder-field-row',
+                draggedFieldKey === field.key && 'builder-field-row--dragging',
+                dragOverFieldKey === field.key && 'builder-field-row--drag-over',
+              ]"
+              :draggable="Boolean(field.id) && !reorderSaving"
+              @dragstart="startFieldDrag(field, $event)"
+              @dragover.prevent="dragOverField(field)"
+              @drop.prevent="dropField(field, $event)"
+              @dragend="endFieldDrag"
+            >
+              <span class="field-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">
+                <AppIcon name="drag" />
+              </span>
               <span class="field-type-icon"><AppIcon name="forms" /></span>
               <div>
                 <strong>{{ field.label }}</strong>
                 <span>{{ sectionLabel(field) }} - {{ field.type }} - {{ field.required ? 'Required' : 'Optional' }}</span>
               </div>
               <QdsBadge v-if="field.options?.length" tone="green">{{ field.options.length }} options</QdsBadge>
+              <div class="field-order-actions">
+                <QdsIconButton
+                  icon="arrowUp"
+                  tiny
+                  :disabled="index === 0 || reorderSaving"
+                  :title="`Move ${field.label} up`"
+                  :aria-label="`Move ${field.label} up`"
+                  @click="moveField(field, -1)"
+                />
+                <QdsIconButton
+                  icon="arrowDown"
+                  tiny
+                  :disabled="index === visibleBuilderFields.length - 1 || reorderSaving"
+                  :title="`Move ${field.label} down`"
+                  :aria-label="`Move ${field.label} down`"
+                  @click="moveField(field, 1)"
+                />
+              </div>
               <QdsButton variant="tiny" @click="editField(field)">Edit</QdsButton>
               <QdsButton v-if="field.id" variant="tiny" @click="removeField(field)">Remove</QdsButton>
             </div>
+            <p v-if="visibleBuilderFields.length > 1" class="builder-order-hint">
+              Drag a field or use the arrow buttons to change its order. Changes save automatically.
+            </p>
           </div>
         </section>
 
@@ -402,6 +440,8 @@ import {
   formatDate,
   getAssessmentForm,
   publishAssessmentForm,
+  repairAssessmentFormFieldOrder,
+  reorderFormFields,
   statusTone,
   testFormRules,
   titleCase,
@@ -468,6 +508,9 @@ const selectedSectionKey = ref('assessment_metadata');
 const showSectionCreator = ref(false);
 const showFieldEditor = ref(false);
 const notice = ref('');
+const draggedFieldKey = ref<string | null>(null);
+const dragOverFieldKey = ref<string | null>(null);
+const reorderSaving = ref(false);
 const ruleTestInput = ref('{"doctors_available":"yes","total_doctors":2,"gps_coordinates":{"latitude":9.61,"longitude":6.55}}');
 const ruleTestOutput = ref('Run a rule test to see validation output.');
 const customValidationRule = ref('');
@@ -563,7 +606,7 @@ const builderFields = computed<BuilderField[]>(() => {
       required: Boolean(record.required),
       validation_rules: Array.isArray(record.rules) ? record.rules.map(String) : [],
       options: Array.isArray(record.options) ? record.options as BuilderField['options'] : [],
-      sort_order: index + 1,
+      sort_order: Number(record.order ?? index + 1),
     };
   });
 });
@@ -788,6 +831,18 @@ const saveOverview = async () => {
   notice.value = 'Draft details saved.';
 };
 
+const repairAndPublishFieldOrder = async () => {
+  if (!window.confirm('Repair legacy field order using the original creation sequence and publish a new mobile snapshot?')) return;
+
+  try {
+    await repairAssessmentFormFieldOrder(formModel.slug);
+    applyForm(await publishAssessmentForm(formModel.slug));
+    notice.value = 'Field order repaired and published. Mobile devices will receive the corrected snapshot on the next sync.';
+  } catch (error) {
+    notice.value = error instanceof Error ? error.message : 'Unable to repair field order.';
+  }
+};
+
 const publishForm = async () => {
   applyForm(await publishAssessmentForm(formModel.slug));
   notice.value = 'Published a new mobile snapshot from the builder source.';
@@ -911,6 +966,106 @@ const saveField = async () => {
   await loadForm();
   notice.value = 'Field saved to builder source.';
   showFieldEditor.value = false;
+};
+
+const startFieldDrag = (field: BuilderField, event: DragEvent) => {
+  if (!field.id || reorderSaving.value) {
+    event.preventDefault();
+    return;
+  }
+
+  draggedFieldKey.value = field.key;
+  dragOverFieldKey.value = null;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', field.key);
+  }
+};
+
+const dragOverField = (field: BuilderField) => {
+  if (draggedFieldKey.value && draggedFieldKey.value !== field.key) {
+    dragOverFieldKey.value = field.key;
+  }
+};
+
+const endFieldDrag = () => {
+  draggedFieldKey.value = null;
+  dragOverFieldKey.value = null;
+};
+
+const persistFieldOrder = async (orderedFields: BuilderField[], previousOrders: Map<number, number | undefined>) => {
+  const fieldIds = orderedFields.map((field) => field.id).filter((id): id is number => typeof id === 'number');
+  if (fieldIds.length !== orderedFields.length || fieldIds.length === 0) {
+    notice.value = 'This form needs to be loaded from the workspace before fields can be reordered.';
+    return;
+  }
+
+  formModel.fields?.forEach((field) => {
+    const index = fieldIds.indexOf(field.id ?? -1);
+    if (index !== -1) field.sort_order = index + 1;
+  });
+
+  reorderSaving.value = true;
+  notice.value = 'Saving field order...';
+
+  try {
+    applyForm(await reorderFormFields(formModel.slug, {
+      section_key: selectedSectionKey.value || null,
+      field_ids: fieldIds,
+    }));
+    notice.value = 'Field order saved. Publish the form to send it to mobile devices.';
+  } catch (error) {
+    formModel.fields?.forEach((field) => {
+      if (field.id !== undefined && previousOrders.has(field.id)) {
+        field.sort_order = previousOrders.get(field.id);
+      }
+    });
+    notice.value = error instanceof Error ? error.message : 'Unable to save field order.';
+  } finally {
+    reorderSaving.value = false;
+  }
+};
+
+const reorderVisibleFields = async (field: BuilderField, offset: number) => {
+  if (!field.id || reorderSaving.value) return;
+
+  const currentFields = [...visibleBuilderFields.value];
+  const currentIndex = currentFields.findIndex((item) => item.key === field.key);
+  const nextIndex = currentIndex + offset;
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentFields.length) return;
+
+  const previousOrders = new Map<number, number | undefined>();
+  currentFields.forEach((item) => {
+    if (item.id !== undefined) previousOrders.set(item.id, item.sort_order);
+  });
+
+  const [movedField] = currentFields.splice(currentIndex, 1);
+  currentFields.splice(nextIndex, 0, movedField);
+  await persistFieldOrder(currentFields, previousOrders);
+};
+
+const moveField = (field: BuilderField, offset: number) => {
+  void reorderVisibleFields(field, offset);
+};
+
+const dropField = (targetField: BuilderField, event?: DragEvent) => {
+  const sourceKey = event?.dataTransfer?.getData('text/plain') || draggedFieldKey.value;
+  endFieldDrag();
+  if (!sourceKey || sourceKey === targetField.key || reorderSaving.value) return;
+
+  const currentFields = [...visibleBuilderFields.value];
+  const sourceIndex = currentFields.findIndex((field) => field.key === sourceKey);
+  const targetIndex = currentFields.findIndex((field) => field.key === targetField.key);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+
+  const previousOrders = new Map<number, number | undefined>();
+  currentFields.forEach((field) => {
+    if (field.id !== undefined) previousOrders.set(field.id, field.sort_order);
+  });
+
+  const [movedField] = currentFields.splice(sourceIndex, 1);
+  currentFields.splice(targetIndex, 0, movedField);
+  void persistFieldOrder(currentFields, previousOrders);
 };
 
 const removeField = async (field: BuilderField) => {

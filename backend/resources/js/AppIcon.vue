@@ -105,6 +105,21 @@ const icons: Record<string, IconShape> = {
     paths: ['M19 12H5'],
     polylines: ['12 19 5 12 12 5'],
   },
+  arrowUp: {
+    paths: ['M12 19V5'],
+    polylines: ['5 12 12 5 19 12'],
+  },
+  arrowDown: {
+    paths: ['M12 5v14'],
+    polylines: ['5 12 12 19 19 12'],
+  },
+  drag: {
+    circles: [
+      { cx: 8, cy: 6, r: 1 }, { cx: 16, cy: 6, r: 1 },
+      { cx: 8, cy: 12, r: 1 }, { cx: 16, cy: 12, r: 1 },
+      { cx: 8, cy: 18, r: 1 }, { cx: 16, cy: 18, r: 1 },
+    ],
+  },
   save: {
     paths: ['M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z', 'M17 21v-8H7v8', 'M7 3v5h8'],
   },
