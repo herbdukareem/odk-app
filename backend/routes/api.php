@@ -84,6 +84,9 @@ Route::middleware(['auth:sanctum', ResolveOdkWorkspace::class])->group(function 
     Route::get('/assignments', [AssessmentAssignmentController::class, 'index']);
     Route::post('/assignments', [AssessmentAssignmentController::class, 'store']);
     Route::patch('/assignments/{assignment:uuid}', [AssessmentAssignmentController::class, 'update']);
+    Route::post('/assignments/{assignment:uuid}/cancel', [AssessmentAssignmentController::class, 'cancel']);
+    Route::post('/assignments/{assignment:uuid}/archive', [AssessmentAssignmentController::class, 'archive']);
+    Route::delete('/assignments/{assignment:uuid}', [AssessmentAssignmentController::class, 'destroy']);
     Route::get('/forms/{form:slug}', [AssessmentFormController::class, 'show']);
     Route::patch('/forms/{form:slug}', [AssessmentFormController::class, 'update']);
     Route::post('/forms/{form:slug}/clone', [AssessmentFormController::class, 'clone']);

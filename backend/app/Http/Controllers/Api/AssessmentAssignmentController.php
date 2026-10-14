@@ -8,6 +8,7 @@ use App\Models\OdkTeam;
 use App\Models\OdkTarget;
 use App\Models\OdkUser;
 use App\Models\ReferenceFacility;
+use App\Support\OdkWorkspaceContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +30,7 @@ class AssessmentAssignmentController
                 'user:id,uuid,name,email,status',
                 'team:id,uuid,name,status',
             ])
-            ->withCount('submissions')
+            ->withCount(['submissions' => fn ($query) => $query->withTrashed()])
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
             ->when($request->filled('exercise_id'), fn ($query) => $query->where('assessment_exercise_id', $request->integer('exercise_id')))
             ->when($request->filled('assignee_type'), fn ($query) => $query->where('assignee_type', $request->string('assignee_type')))
@@ -69,6 +70,8 @@ class AssessmentAssignmentController
 
     public function store(Request $request): JsonResponse
     {
+        $this->assertManager($request);
+
         $data = $request->validate([
             'assessment_exercise_id' => ['required', 'integer', 'exists:assessment_exercises,id'],
             'assignee_type' => ['required', Rule::in([AssessmentAssignment::ASSIGNEE_USER, AssessmentAssignment::ASSIGNEE_TEAM])],
@@ -138,6 +141,8 @@ class AssessmentAssignmentController
 
     public function update(Request $request, AssessmentAssignment $assignment): JsonResponse
     {
+        $this->assertManager($request);
+
         $data = $request->validate([
             'assignee_type' => ['required', Rule::in([AssessmentAssignment::ASSIGNEE_USER, AssessmentAssignment::ASSIGNEE_TEAM])],
             'assignee_id' => ['required', 'integer'],
@@ -166,6 +171,61 @@ class AssessmentAssignmentController
         ]);
     }
 
+    public function cancel(Request $request, AssessmentAssignment $assignment): JsonResponse
+    {
+        $this->assertManager($request);
+
+        abort_if(
+            $assignment->submissions()->withTrashed()->exists(),
+            409,
+            'Assignments with submissions cannot be cancelled. Archive it instead.'
+        );
+        abort_unless(
+            in_array($assignment->status, [
+                AssessmentAssignment::STATUS_ASSIGNED,
+                AssessmentAssignment::STATUS_IN_PROGRESS,
+            ], true),
+            422,
+            'Only assigned or in-progress assignments without submissions can be cancelled.'
+        );
+
+        $assignment->update(['status' => AssessmentAssignment::STATUS_CANCELLED]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $assignment->fresh($this->loads()),
+        ]);
+    }
+
+    public function archive(Request $request, AssessmentAssignment $assignment): JsonResponse
+    {
+        $this->assertManager($request);
+        $assignment->delete();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'uuid' => $assignment->uuid,
+                'archived' => true,
+            ],
+        ]);
+    }
+
+    public function destroy(Request $request, AssessmentAssignment $assignment): JsonResponse
+    {
+        $this->assertManager($request);
+
+        abort_if(
+            $assignment->submissions()->withTrashed()->exists(),
+            409,
+            'This assignment has submissions and must be archived instead of deleted.'
+        );
+
+        $assignment->forceDelete();
+
+        return response()->json(['success' => true]);
+    }
+
     private function assertAssigneeExists(string $type, int $id): void
     {
         $exists = $type === AssessmentAssignment::ASSIGNEE_USER
@@ -177,6 +237,15 @@ class AssessmentAssignmentController
                 'assignee_id' => ['Select an active '.($type === AssessmentAssignment::ASSIGNEE_USER ? 'user' : 'team').'.'],
             ]);
         }
+    }
+
+    private function assertManager(Request $request): void
+    {
+        abort_unless(
+            app(OdkWorkspaceContext::class)->userCanManage($request->user()),
+            403,
+            'Only workspace owners and admins can manage assignments.'
+        );
     }
 
     private function assertNoDuplicateAssignments(int $exerciseId, array $facilityIds): void

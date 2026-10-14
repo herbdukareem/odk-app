@@ -167,6 +167,32 @@ export const updateAssessmentAssignment = async (uuid: string, payload: Assignme
   return response.data;
 };
 
+const assignmentAction = async (uuid: string, action: 'cancel' | 'archive'): Promise<AssessmentAssignment | null> => {
+  const response = await writeJson<ApiEnvelope<{ uuid: string; archived: boolean } | AssessmentAssignment>>(
+    `/api/assignments/${uuid}/${action}`,
+    'POST',
+    {},
+  );
+  return response.data as AssessmentAssignment | null;
+};
+
+export const cancelAssessmentAssignment = async (uuid: string): Promise<AssessmentAssignment | null> => (
+  assignmentAction(uuid, 'cancel')
+);
+
+export const archiveAssessmentAssignment = async (uuid: string): Promise<AssessmentAssignment | null> => (
+  assignmentAction(uuid, 'archive')
+);
+
+export const deleteAssessmentAssignment = async (uuid: string): Promise<void> => {
+  const response = await authenticatedRequest(`/api/assignments/${uuid}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+
+  if (!response.ok) throw new Error(await response.text());
+};
+
 export const statusTone = (status?: AssignmentStatus): 'green' | 'amber' | 'blue' | 'red' | 'slate' => {
   if (status === 'reviewed') return 'green';
   if (status === 'submitted') return 'blue';

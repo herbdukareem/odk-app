@@ -194,7 +194,7 @@
               :key="String(attachment.id ?? attachment.download_url ?? attachment.original_name ?? 'evidence')"
               type="button"
               :disabled="downloadingAttachmentId === Number(attachment.id)"
-              @click="openEvidence(attachment.download_url, Number(attachment.id))"
+              @click="openEvidence(attachment.download_url, Number(attachment.id), selectedSubmission.uuid)"
             >
               <AppIcon name="upload" />
               <span>
@@ -410,14 +410,16 @@ const closeReviewModal = () => {
   reviewModalOpen.value = false;
 };
 
-const openEvidence = async (url: string | null | undefined, attachmentId: number) => {
-  if (!url || downloadingAttachmentId.value !== null) return;
+const openEvidence = async (url: string | null | undefined, attachmentId: number, submissionUuid: string) => {
+  if (!attachmentId || !submissionUuid || downloadingAttachmentId.value !== null) return;
 
   downloadingAttachmentId.value = attachmentId;
   const popup = window.open('', '_blank');
+  const apiUrl = '/api/submissions/' + submissionUuid + '/attachments/' + attachmentId + '/download';
+  const resolvedUrl = url?.includes('/api/submissions/') ? url : apiUrl;
 
   try {
-    const response = await authenticatedRequest(url, { method: 'GET' });
+    const response = await authenticatedRequest(resolvedUrl, { method: 'GET' });
     const objectUrl = URL.createObjectURL(await response.blob());
 
     if (popup) {

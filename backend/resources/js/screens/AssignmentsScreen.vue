@@ -64,6 +64,27 @@
           <span>{{ assignment.submissions_count || 0 }}</span>
           <span class="row-actions">
             <QdsButton variant="tiny" @click="openModal(assignment)">Edit</QdsButton>
+            <QdsButton
+              v-if="canCancel(assignment)"
+              variant="tiny"
+              @click="cancelAssignment(assignment)"
+            >
+              Cancel
+            </QdsButton>
+            <QdsButton
+              v-if="canArchive(assignment)"
+              variant="tiny"
+              @click="archiveAssignment(assignment)"
+            >
+              Archive
+            </QdsButton>
+            <QdsButton
+              v-if="canDelete(assignment)"
+              variant="tiny"
+              @click="deleteAssignment(assignment)"
+            >
+              Delete
+            </QdsButton>
           </span>
         </div>
         <div v-if="!loading && assignments.length === 0" class="table-empty">
@@ -157,6 +178,9 @@ import QdsField from '../components/qds/QdsField.vue';
 import QdsSearch from '../components/qds/QdsSearch.vue';
 import {
   createAssessmentAssignments,
+  archiveAssessmentAssignment,
+  cancelAssessmentAssignment,
+  deleteAssessmentAssignment,
   formatDate,
   loadAssessmentAssignments,
   statusTone,
@@ -398,6 +422,65 @@ const toggleTarget = (targetId: number) => {
 const assigneeName = (assignment: AssessmentAssignment): string => {
   if (assignment.assignee_type === 'team') return assignment.team?.name || 'Unknown team';
   return assignment.user?.name || 'Unknown user';
+};
+
+const submissionCount = (assignment: AssessmentAssignment): number => assignment.submissions_count || 0;
+
+const canCancel = (assignment: AssessmentAssignment): boolean => (
+  submissionCount(assignment) === 0
+  && ['assigned', 'in_progress'].includes(assignment.status)
+);
+
+const canArchive = (_assignment: AssessmentAssignment): boolean => true;
+
+const canDelete = (assignment: AssessmentAssignment): boolean => (
+  submissionCount(assignment) === 0
+);
+
+const assignmentLabel = (assignment: AssessmentAssignment): string => (
+  assignment.facility?.name
+  || assignment.target?.name
+  || (assignment.target_type === 'no_target' ? 'No target' : 'this assignment')
+);
+
+const cancelAssignment = async (assignment: AssessmentAssignment) => {
+  if (!window.confirm('Cancel ' + assignmentLabel(assignment) + '? It will remain in the workspace as cancelled.')) return;
+
+  try {
+    await cancelAssessmentAssignment(assignment.uuid);
+    notice.value = 'Assignment cancelled.';
+    await loadAssignments();
+  } catch (error) {
+    notice.value = error instanceof Error ? error.message : 'Unable to cancel assignment.';
+  }
+};
+
+const archiveAssignment = async (assignment: AssessmentAssignment) => {
+  if (!window.confirm('Archive ' + assignmentLabel(assignment) + '? Its submissions and history will be preserved.')) return;
+
+  try {
+    await archiveAssessmentAssignment(assignment.uuid);
+    notice.value = 'Assignment archived.';
+    await loadAssignments();
+  } catch (error) {
+    notice.value = error instanceof Error ? error.message : 'Unable to archive assignment.';
+  }
+};
+
+const deleteAssignment = async (assignment: AssessmentAssignment) => {
+  if (!canDelete(assignment)) {
+    notice.value = 'Assignments with submissions must be archived instead of deleted.';
+    return;
+  }
+  if (!window.confirm('Permanently delete ' + assignmentLabel(assignment) + '? This cannot be undone.')) return;
+
+  try {
+    await deleteAssessmentAssignment(assignment.uuid);
+    notice.value = 'Assignment deleted.';
+    await loadAssignments();
+  } catch (error) {
+    notice.value = error instanceof Error ? error.message : 'Unable to delete assignment.';
+  }
 };
 
 watch(() => ({ ...filters }), () => {
