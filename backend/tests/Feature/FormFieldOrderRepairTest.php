@@ -115,6 +115,14 @@ class FormFieldOrderRepairTest extends TestCase
             'type' => 'text',
             'section_key' => $section['key'],
         ])->assertCreated()->json('data');
+        $hiddenSignature = AssessmentFormField::create([
+            'assessment_form_id' => $form['id'],
+            'assessment_form_section_id' => $section['id'],
+            'key' => 'legacy_signature',
+            'label' => 'Legacy signature',
+            'type' => 'signature',
+            'sort_order' => 3,
+        ]);
 
         $this->withToken($token)
             ->putJson('/api/forms/'.$form['slug'].'/fields/order', [
@@ -124,6 +132,7 @@ class FormFieldOrderRepairTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.fields.0.id', $second['id'])
             ->assertJsonPath('data.fields.1.id', $first['id']);
+        $this->assertSame(3, (int) $hiddenSignature->fresh()->sort_order);
 
         $this->withToken($token)
             ->putJson('/api/forms/'.$form['slug'].'/fields/order', [
@@ -137,9 +146,16 @@ class FormFieldOrderRepairTest extends TestCase
             AssessmentFormField::query()
                 ->where('assessment_form_id', $form['id'])
                 ->where('assessment_form_section_id', $section['id'])
+                ->where('type', '!=', 'signature')
                 ->orderBy('sort_order')
                 ->pluck('id')
                 ->all()
         );
+
+        $this->withToken($token)
+            ->postJson('/api/forms/'.$form['slug'].'/clone')
+            ->assertCreated()
+            ->assertJsonPath('data.target_type', 'facility')
+            ->assertJsonCount(2, 'data.fields');
     }
 }

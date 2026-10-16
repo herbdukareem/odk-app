@@ -6,6 +6,8 @@
       </template>
     </AppPageHeader>
 
+    <p v-if="notice" class="builder-notice builder-notice--error">{{ notice }}</p>
+
     <div class="qds-toolbar">
       <QdsTabs v-model="activeTab" :tabs="tabs" />
       <QdsSearch v-model="search" compact placeholder="Search forms..." />
@@ -61,6 +63,7 @@ const emit = defineEmits<{
 const forms = ref<AssessmentForm[]>([]);
 const search = ref('');
 const activeTab = ref('all');
+const notice = ref('');
 
 const loadForms = async () => {
   forms.value = await listAssessmentForms();
@@ -80,9 +83,15 @@ const createForm = async () => {
 };
 
 const cloneForm = async (slug: string) => {
-  const form = await cloneAssessmentForm(slug);
-  await loadForms();
-  emit('open-settings', form.slug);
+  notice.value = '';
+
+  try {
+    const form = await cloneAssessmentForm(slug);
+    await loadForms();
+    emit('open-settings', form.slug);
+  } catch (error) {
+    notice.value = error instanceof Error ? error.message : 'Unable to clone this form.';
+  }
 };
 
 const countByStatus = (status: string) => forms.value.filter((form) => form.status === status).length;

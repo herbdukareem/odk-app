@@ -123,6 +123,7 @@ class AssessmentFormController
                 'title' => $form->title.' copy',
                 'description' => $form->description,
                 'target_audience' => $form->target_audience,
+                'target_type' => $form->target_type,
                 'requires_scoring' => $form->requires_scoring,
                 'scoring_max_score' => $form->scoring_max_score,
                 'status' => AssessmentForm::STATUS_DRAFT,
@@ -145,6 +146,10 @@ class AssessmentFormController
 
             $fieldMap = [];
             foreach ($form->fields as $field) {
+                if ($field->type === 'signature') {
+                    continue;
+                }
+
                 $newField = $clone->fields()->create([
                     'assessment_form_section_id' => $field->assessment_form_section_id ? ($sectionMap[$field->assessment_form_section_id]->id ?? null) : null,
                     ...$field->only([
@@ -179,6 +184,10 @@ class AssessmentFormController
             }
 
             foreach ($form->builderRules as $rule) {
+                if ($rule->assessment_form_field_id && !isset($fieldMap[$rule->assessment_form_field_id])) {
+                    continue;
+                }
+
                 $clone->builderRules()->create([
                     'assessment_form_field_id' => $rule->assessment_form_field_id ? ($fieldMap[$rule->assessment_form_field_id]->id ?? null) : null,
                     ...$rule->only([
@@ -261,7 +270,7 @@ class AssessmentFormController
             $section = $form->sections()->where('key', $data['section_key'])->firstOrFail();
         }
 
-        $fieldQuery = $form->fields();
+        $fieldQuery = $form->fields()->where('type', '!=', 'signature');
         if ($section) {
             $fieldQuery->where('assessment_form_section_id', $section->id);
         } else {
@@ -280,6 +289,7 @@ class AssessmentFormController
 
         DB::transaction(function () use ($form, $section, $fieldIds): void {
             $fields = $form->fields()
+                ->where('type', '!=', 'signature')
                 ->when(
                     $section,
                     fn ($query) => $query->where('assessment_form_section_id', $section->id),
