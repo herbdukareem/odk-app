@@ -525,6 +525,7 @@ export default function App() {
         ? storedWorkspaceId
         : sessionUser?.workspaces?.[0]?.id ?? null;
 
+      setOnline(Boolean(networkState.isConnected && networkState.isInternetReachable !== false));
       setForms(storedForms);
       setFormCacheMeta(storedFormCacheMeta);
       setAssignments(storedAssignments);
@@ -562,6 +563,17 @@ export default function App() {
       unsubscribe();
     };
   }, []);
+
+  // Cached assignments keep the app usable offline, but an authenticated device
+  // must refresh its work pack whenever it starts with a connection or comes back
+  // online. Otherwise newly assigned exercises remain invisible until a manual tap.
+  useEffect(() => {
+    if (!ready || !signedIn || !online) {
+      return;
+    }
+
+    void refreshReferenceData();
+  }, [ready, signedIn, online]);
 
   const form = forms[0] ?? emptyFormSchema;
   const activeDraft = drafts.find((draft) => draft.id === activeDraftId) ?? null;
@@ -1519,7 +1531,11 @@ function HomeScreen({
         </Pressable>
       ) : null}
 
-      <Text style={styles.fieldDate}>FRI 09 OCT 2026 - EXERCISE {exercises[0]?.code ?? 'FIELD QA'}</Text>
+      <Text style={styles.fieldDate}>
+        {exercises.length > 1
+          ? `${exercises.length} EXERCISES ASSIGNED`
+          : `EXERCISE ${exercises[0]?.code ?? 'FIELD QA'}`}
+      </Text>
       <Text style={styles.fieldGreeting}>Afternoon,{'\n'}{assessorName || 'Assessor'}.</Text>
 
       <Pressable style={styles.featureWorkCard} onPress={activeDraft ? () => onOpenDraft(activeDraft.id) : onStart}>
