@@ -12,11 +12,11 @@
     </header>
 
     <section class="landing-hero">
-      <div class="landing-copy">
+      <div class="landing-copy landing-reveal landing-reveal--left">
         <p class="landing-kicker">FIELDWORK / REVIEW / INSIGHT</p>
         <h1>Better data.<br><span>Stronger healthcare.</span></h1>
         <p class="landing-copy__intro">
-          DataKit brings facility assessments, offline fieldwork, evidence, and review teams into one clear workspace.
+          DataKit brings forms, exercises, target assessments, offline fieldwork, and review teams into one clear workspace.
         </p>
         <div class="landing-copy__actions">
           <QdsButton icon="arrowLeft" @click="$emit('sign-in')">Open workspace</QdsButton>
@@ -38,7 +38,7 @@
         </div>
       </div>
 
-      <div class="landing-stage" aria-label="DataKit fieldwork and review workspace preview">
+      <div class="landing-stage landing-reveal landing-reveal--right" aria-label="DataKit fieldwork and review workspace preview">
         <div class="landing-desktop-preview">
           <div class="preview-window-bar"><span /><span /><span /></div>
           <div class="preview-desktop-body">
@@ -58,7 +58,7 @@
                 <div><span>Submitted</span><strong>9</strong></div>
               </div>
               <div class="preview-panel">
-                <div class="preview-panel__heading"><strong>Facility completion</strong><span>Live</span></div>
+                <div class="preview-panel__heading"><strong>Target completion</strong><span>Live</span></div>
                 <div class="preview-bars"><i /><i /><i /><i /><i /><i /></div>
                 <div class="preview-rows"><span /><span /><span /><span /></div>
               </div>
@@ -76,7 +76,7 @@
           <h2>Afternoon,<br>Amina.</h2>
           <div class="phone-draft">
             <span>DRAFT IN PROGRESS</span>
-            <strong>University of Abuja<br>Teaching Hospital</strong>
+            <strong>Assigned target<br>Quarterly review</strong>
             <div />
             <b>Continue draft <em>-></em></b>
           </div>
@@ -86,14 +86,14 @@
       </div>
     </section>
 
-    <section class="landing-strip">
+    <section class="landing-strip landing-reveal">
       <p>Designed for the whole assessment cycle</p>
-      <div><strong>01</strong><span>Assign facilities</span></div>
+      <div><strong>01</strong><span>Assign targets</span></div>
       <div><strong>02</strong><span>Collect evidence</span></div>
       <div><strong>03</strong><span>Review with confidence</span></div>
     </section>
 
-    <section class="landing-section landing-why">
+    <section class="landing-section landing-why landing-reveal">
       <div class="landing-section__inner">
         <div class="landing-section__intro">
           <p class="landing-kicker">WHY DATAKIT</p>
@@ -104,7 +104,7 @@
           <article>
             <strong>01</strong>
             <h3>Work without waiting</h3>
-            <p>Assigned facilities and published forms stay available offline, so a weak connection never becomes a lost visit.</p>
+            <p>Assigned targets and published forms stay available offline, so a weak connection never becomes a lost visit.</p>
           </article>
           <article>
             <strong>02</strong>
@@ -120,12 +120,12 @@
       </div>
     </section>
 
-    <section class="landing-workflow">
+    <section class="landing-workflow landing-reveal">
       <div class="landing-section__inner">
         <div class="landing-workflow__heading">
           <p class="landing-kicker">ONE CONNECTED WORKFLOW</p>
           <h2>From assignment to action.</h2>
-          <p>Keep the same context from the first facility assignment to the final review decision.</p>
+          <p>Keep the same context from the first target assignment to the final review decision.</p>
         </div>
         <div class="landing-workflow__steps">
           <div class="workflow-step">
@@ -144,13 +144,13 @@
       </div>
     </section>
 
-    <section class="landing-section landing-clarity">
+    <section class="landing-section landing-clarity landing-reveal">
       <div class="landing-section__inner landing-clarity__inner">
         <div class="landing-clarity__visual">
           <div class="clarity-window">
             <div class="clarity-window__head"><span>SUBMISSION REVIEW</span><b>READY FOR REVIEW</b></div>
             <div class="clarity-score"><strong>82.5</strong><span>/ 100</span><small>Assessment score</small></div>
-            <div class="clarity-row"><span>Facility evidence</span><b>Complete</b></div>
+            <div class="clarity-row"><span>Target evidence</span><b>Complete</b></div>
             <div class="clarity-row"><span>Validation issues</span><b>2 to resolve</b></div>
             <div class="clarity-row"><span>Review status</span><b>Under review</b></div>
           </div>
@@ -159,12 +159,12 @@
           <p class="landing-kicker">BUILT FOR CLARITY</p>
           <h2>Less chasing. More knowing.</h2>
           <p>Every answer has a place, every submission has a trail, and every reviewer can see what needs attention next.</p>
-          <div class="landing-quote">“The best workflow is the one that lets the team focus on the facility, not the paperwork.”</div>
+          <div class="landing-quote">“The best workflow is the one that lets the team focus on the work, not the paperwork.”</div>
         </div>
       </div>
     </section>
 
-    <section class="landing-cta">
+    <section class="landing-cta landing-reveal">
       <div class="landing-cta__inner">
         <div>
           <p class="landing-kicker">READY WHEN YOU ARE</p>
@@ -180,7 +180,7 @@
       </div>
     </section>
 
-    <footer class="landing-footer">
+    <footer class="landing-footer landing-reveal">
       <div class="landing-footer__inner">
         <BrandMark theme="light" />
         <span>Quality assurance, from the field to the review room.</span>
@@ -191,6 +191,7 @@
 </template>
 
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue';
 import BrandMark from '../components/layout/BrandMark.vue';
 import AppIcon from '../AppIcon.vue';
 import QdsButton from '../components/qds/QdsButton.vue';
@@ -199,6 +200,38 @@ defineEmits<{
   'sign-in': [];
   register: [];
 }>();
+
+let revealObserver: IntersectionObserver | null = null;
+
+onMounted(() => {
+  const revealItems = document.querySelectorAll<HTMLElement>('.landing-reveal');
+
+  if (!('IntersectionObserver' in window)) {
+    revealItems.forEach((item) => item.classList.add('is-visible'));
+    return;
+  }
+
+  revealObserver = new IntersectionObserver((entries, observer) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+
+      entry.target.classList.add('is-visible');
+      observer.unobserve(entry.target);
+    });
+  }, {
+    threshold: 0.12,
+    rootMargin: '0px 0px -36px',
+  });
+
+  revealItems.forEach((item, index) => {
+    item.style.setProperty('--reveal-delay', `${Math.min(index * 70, 280)}ms`);
+    revealObserver?.observe(item);
+  });
+});
+
+onBeforeUnmount(() => {
+  revealObserver?.disconnect();
+});
 </script>
 
 <style scoped>
@@ -207,6 +240,28 @@ defineEmits<{
   overflow: hidden;
   color: #10251d;
   background: #f5f5ef;
+}
+
+.landing-reveal {
+  opacity: 0;
+  transform: translate3d(0, 24px, 0);
+  transition:
+    opacity 700ms ease,
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+.landing-reveal--left {
+  transform: translate3d(-28px, 0, 0);
+}
+
+.landing-reveal--right {
+  transform: translate3d(28px, 0, 0);
+}
+
+.landing-reveal.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
 }
 
 .landing-nav {
@@ -245,6 +300,7 @@ defineEmits<{
   height: 7px;
   border-radius: 50%;
   background: #1ca66a;
+  animation: phone-online-pulse 2s ease-in-out infinite;
 }
 
 .landing-sign-in :deep(.app-icon),
@@ -381,6 +437,7 @@ defineEmits<{
   background: #dceee3;
   content: '';
   transform: rotate(5deg);
+  animation: landing-backdrop-float 8s ease-in-out infinite;
 }
 
 .landing-desktop-preview {
@@ -394,6 +451,7 @@ defineEmits<{
   background: #f6f6f1;
   box-shadow: 0 24px 50px rgba(16, 37, 29, 0.12);
   transform: rotate(3deg);
+  animation: landing-desktop-float 7s ease-in-out infinite;
 }
 
 .preview-window-bar {
@@ -519,6 +577,8 @@ defineEmits<{
   flex: 1;
   border-radius: 4px 4px 0 0;
   background: #0e5a3a;
+  transform-origin: bottom;
+  animation: preview-bar-pulse 4.5s ease-in-out infinite;
 }
 
 .preview-bars i:nth-child(1) { height: 42%; }
@@ -527,6 +587,11 @@ defineEmits<{
 .preview-bars i:nth-child(4) { height: 83%; }
 .preview-bars i:nth-child(5) { height: 70%; background: #a9d9bb; }
 .preview-bars i:nth-child(6) { height: 94%; background: #a9d9bb; }
+.preview-bars i:nth-child(2) { animation-delay: 120ms; }
+.preview-bars i:nth-child(3) { animation-delay: 240ms; }
+.preview-bars i:nth-child(4) { animation-delay: 360ms; }
+.preview-bars i:nth-child(5) { animation-delay: 480ms; }
+.preview-bars i:nth-child(6) { animation-delay: 600ms; }
 
 .preview-rows {
   display: grid;
@@ -560,6 +625,7 @@ defineEmits<{
   color: #10251d;
   background: #f5f5ef;
   box-shadow: 0 24px 50px rgba(16, 37, 29, 0.18);
+  animation: landing-phone-float 6s ease-in-out infinite;
 }
 
 .phone-speaker {
@@ -687,6 +753,48 @@ defineEmits<{
 }
 
 .phone-start b { font-size: 22px; font-weight: 400; }
+
+@keyframes landing-backdrop-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(5deg); }
+  50% { transform: translate3d(-8px, -10px, 0) rotate(4deg); }
+}
+
+@keyframes landing-desktop-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(3deg); }
+  50% { transform: translate3d(-10px, -8px, 0) rotate(2deg); }
+}
+
+@keyframes landing-phone-float {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -10px, 0); }
+}
+
+@keyframes preview-bar-pulse {
+  0%, 100% { opacity: 0.82; transform: scaleY(0.92); }
+  50% { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes phone-online-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(28, 166, 106, 0.16); }
+  50% { box-shadow: 0 0 0 5px rgba(28, 166, 106, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-reveal,
+  .landing-stage::before,
+  .landing-desktop-preview,
+  .landing-phone-preview,
+  .preview-bars i,
+  .phone-online i {
+    animation: none;
+  }
+
+  .landing-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
 
 .landing-strip {
   display: grid;
@@ -1029,14 +1137,41 @@ defineEmits<{
   .landing-section__inner,
   .landing-cta__inner,
   .landing-footer__inner { width: min(100% - 32px, 520px); }
-  .landing-nav { min-height: 70px; }
+  .landing-nav {
+    min-height: 66px;
+    gap: 10px;
+  }
+
+  .landing-nav :deep(.brand-logo) {
+    width: 112px;
+    height: 28px;
+  }
+
+  .landing-nav__actions {
+    flex-shrink: 0;
+    gap: 8px;
+  }
+
+  .landing-nav__actions .qds-button {
+    min-height: 38px;
+    padding: 0 10px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .landing-nav__actions .landing-sign-in {
+    min-width: 82px;
+  }
+
   .landing-status { display: none; }
-  .landing-hero { min-height: auto; padding: 34px 0 28px; }
-  .landing-copy h1 { font-size: 48px; }
-  .landing-copy__intro { font-size: 15px; }
-  .landing-copy__actions { align-items: stretch; flex-direction: column; }
-  .landing-download { width: fit-content; }
-  .landing-proof { margin-top: 38px; }
+  .landing-hero { min-height: auto; padding: 28px 0 26px; }
+  .landing-kicker { margin-bottom: 14px; font-size: 10px; }
+  .landing-copy h1 { font-size: 46px; line-height: 0.98; }
+  .landing-copy__intro { margin-top: 20px; font-size: 15px; line-height: 1.48; }
+  .landing-copy__actions { align-items: stretch; flex-direction: column; gap: 10px; margin-top: 24px; }
+  .landing-copy__actions .qds-button { width: 100%; }
+  .landing-download { width: fit-content; min-height: 40px; }
+  .landing-proof { margin-top: 32px; }
   .landing-stage { min-height: 510px; margin: 0 -8px; }
   .landing-desktop-preview { top: 6%; right: -23%; width: 88%; }
   .landing-phone-preview { left: 0; width: 68%; min-height: 450px; padding: 42px 16px 20px; border-width: 7px; border-radius: 28px; }
@@ -1063,5 +1198,27 @@ defineEmits<{
   .landing-cta h2 { font-size: 32px; }
   .landing-cta__actions { justify-content: flex-start; }
   .landing-footer__inner { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-width: 390px) {
+  .landing-nav,
+  .landing-hero,
+  .landing-strip,
+  .landing-section__inner,
+  .landing-cta__inner,
+  .landing-footer__inner { width: min(100% - 24px, 520px); }
+
+  .landing-nav {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 12px 0 8px;
+  }
+
+  .landing-nav__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .landing-copy h1 { font-size: 42px; }
 }
 </style>
