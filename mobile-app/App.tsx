@@ -14,6 +14,7 @@ import {
   Image,
   PanResponder,
   Pressable,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -3542,7 +3543,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingTop: Platform.OS === 'android' ? 40 : 18,
     paddingBottom: 122,
   },
   header: {

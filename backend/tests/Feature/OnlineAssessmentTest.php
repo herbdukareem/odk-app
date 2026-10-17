@@ -231,6 +231,27 @@ class OnlineAssessmentTest extends TestCase
             ->assertJsonPath('data.assignments.0.submission.review_note', 'Please correct the assessment details.');
     }
 
+    public function test_mobile_assignments_include_open_work_from_multiple_exercises(): void
+    {
+        $user = $this->createUser('multi-exercise-mobile@example.com');
+        [$firstAssignment, $firstExercise] = $this->createAssignment($user, 'first', 1001);
+        [$secondAssignment, $secondExercise] = $this->createAssignment($user, 'second', 1002, AssessmentExercise::STATUS_DRAFT);
+
+        $response = $this->getJson('/api/mobile/assignments?assessor_id='.$user->id.'&assessor_email='.urlencode($user->email))
+            ->assertOk()
+            ->assertJsonCount(2, 'data.assignments')
+            ->assertJsonCount(2, 'data.exercises');
+
+        $this->assertEqualsCanonicalizing(
+            [$firstAssignment->uuid, $secondAssignment->uuid],
+            collect($response->json('data.assignments'))->pluck('uuid')->all()
+        );
+        $this->assertEqualsCanonicalizing(
+            [$firstExercise->uuid, $secondExercise->uuid],
+            collect($response->json('data.exercises'))->pluck('uuid')->all()
+        );
+    }
+
     private function createUser(string $email): OdkUser
     {
         return OdkUser::create([
@@ -241,12 +262,17 @@ class OnlineAssessmentTest extends TestCase
         ]);
     }
 
-    private function createAssignment(OdkUser $user): array
+    private function createAssignment(
+        OdkUser $user,
+        string $suffix = 'online-test',
+        int $facilitySourceId = 1001,
+        string $exerciseStatus = AssessmentExercise::STATUS_ACTIVE
+    ): array
     {
         $form = AssessmentForm::create([
             'uuid' => (string) Str::uuid(),
-            'slug' => 'online-test-form',
-            'title' => 'Online test form',
+            'slug' => 'online-test-form-'.$suffix,
+            'title' => 'Online test form '.$suffix,
             'status' => AssessmentForm::STATUS_PUBLISHED,
         ]);
         $version = AssessmentFormVersion::create([
@@ -271,21 +297,21 @@ class OnlineAssessmentTest extends TestCase
         $form->forceFill(['current_version_id' => $version->id])->save();
 
         $facility = ReferenceFacility::create([
-            'source_id' => 1001,
-            'source_code' => 'FAC-1001',
-            'name' => 'Online Test Facility',
+            'source_id' => $facilitySourceId,
+            'source_code' => 'FAC-'.$facilitySourceId,
+            'name' => 'Online Test Facility '.$suffix,
         ]);
         $exercise = AssessmentExercise::create([
             'uuid' => (string) Str::uuid(),
-            'name' => 'Online test exercise',
-            'code' => 'ONLINE-TEST',
+            'name' => 'Online test exercise '.$suffix,
+            'code' => 'ONLINE-'.strtoupper($suffix),
             'period_type' => AssessmentExercise::PERIOD_CUSTOM,
             'year' => (int) now()->year,
             'starts_at' => now()->toDateString(),
             'ends_at' => now()->addDay()->toDateString(),
             'assessment_form_id' => $form->id,
             'assessment_form_version_id' => $version->id,
-            'status' => AssessmentExercise::STATUS_ACTIVE,
+            'status' => $exerciseStatus,
         ]);
         $assignment = AssessmentAssignment::create([
             'uuid' => (string) Str::uuid(),

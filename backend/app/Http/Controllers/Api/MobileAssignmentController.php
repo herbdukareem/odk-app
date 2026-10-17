@@ -56,11 +56,12 @@ class MobileAssignmentController
                 AssessmentAssignment::STATUS_ASSIGNED,
                 AssessmentAssignment::STATUS_IN_PROGRESS,
             ])
+            // An assignment is the workspace's source of truth for the assessor's
+            // work pack. Do not silently hide an assigned exercise because its
+            // lifecycle status was changed after the assignment was created.
+            // Submission-window validation still protects the write path.
             ->whereHas('exercise', function ($query): void {
-                $query->whereIn('status', [
-                    AssessmentExercise::STATUS_SCHEDULED,
-                    AssessmentExercise::STATUS_ACTIVE,
-                ]);
+                $query->where('status', '!=', AssessmentExercise::STATUS_ARCHIVED);
             })
             ->where(function ($query) use ($user, $teamIds): void {
                 $query->where('odk_user_id', $user->id);
