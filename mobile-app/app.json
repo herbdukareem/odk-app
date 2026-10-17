@@ -2,7 +2,7 @@
   "expo": {
     "name": "DataKit QA",
     "slug": "nicare-odk-mobile",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
@@ -20,7 +20,7 @@
     },
     "android": {
       "package": "ng.gov.nicare.qa",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "CAMERA",
         "ACCESS_FINE_LOCATION",
@@ -28,7 +28,10 @@
       ]
     },
     "extra": {
-      "apiBaseUrl": "https://datakit.pro/api"
+      "apiBaseUrl": "https://datakit.pro/api",
+      "appUpdateDownloadUrl": "https://datakit.pro/downloads/datakit-qa.apk",
+      "appUpdateMandatory": false,
+      "appUpdateReleaseNotes": "Improved mobile syncing and app stability."
     },
     "plugins": [
       "expo-secure-store",

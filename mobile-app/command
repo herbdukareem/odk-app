@@ -1,1 +1,5 @@
 powershell -ExecutionPolicy Bypass -File .\build-release.ps1
+
+cd C:\Users\DELL\Documents\Projects\nicare-systems\odk\mobile-app
+# Update version and versionCode in app.json
+powershell -ExecutionPolicy Bypass -File .\build-release.ps1

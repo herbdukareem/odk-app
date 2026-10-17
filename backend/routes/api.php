@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\ExerciseReportController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\MobileAssignmentController;
+use App\Http\Controllers\Api\MobileAppVersionController;
 use App\Http\Controllers\Api\MobileReferenceController;
 use App\Http\Controllers\Api\NicareIntegrationController;
 use App\Http\Controllers\Api\OdkAuthController;
@@ -116,6 +117,7 @@ Route::get('/mobile/assignments', [MobileAssignmentController::class, 'index']);
 Route::post('/mobile/submissions', [AssessmentSubmissionController::class, 'store']);
 Route::post('/mobile/submissions/{submission:uuid}/attachments', [AssessmentSubmissionController::class, 'uploadAttachment']);
 Route::post('/mobile/auth/login', [OdkMobileAuthController::class, 'login']);
+Route::get('/mobile/app-version', MobileAppVersionController::class);
 Route::middleware(['auth:sanctum', ResolveOdkWorkspace::class])->prefix('mobile/secure')->group(function (): void {
     Route::get('/me', [OdkMobileAuthController::class, 'me']);
     Route::post('/logout', [OdkMobileAuthController::class, 'logout']);

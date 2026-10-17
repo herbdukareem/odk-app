@@ -1,13 +1,16 @@
 import NetInfo from '@react-native-community/netinfo';
 import Constants from 'expo-constants';
+import * as Crypto from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths, UploadType } from 'expo-file-system';
+import { getContentUriAsync } from 'expo-file-system/legacy';
+import * as IntentLauncher from 'expo-intent-launcher';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import Storage from 'expo-sqlite/kv-store';
 import { StatusBar } from 'expo-status-bar';
 import { Feather } from '@expo/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   GestureResponderEvent,
@@ -373,9 +376,22 @@ type MobileAuthMeResponse = {
   data: MobileUser;
 };
 
+type MobileAppUpdate = {
+  app_id: string;
+  version: string;
+  version_code: number;
+  download_url: string;
+  mandatory: boolean;
+  release_notes?: string | null;
+  checksum_sha256?: string | null;
+};
+
 const API_BASE_URL = String(
   Constants.expoConfig?.extra?.apiBaseUrl ?? 'http://odk-web.test/api'
 ).replace(/\/$/, '');
+const CURRENT_APP_ID = String(Constants.expoConfig?.android?.package ?? 'ng.gov.nicare.qa');
+const CURRENT_APP_VERSION = String(Constants.expoConfig?.version ?? '0.1.2');
+const CURRENT_APP_VERSION_CODE = Number(Constants.expoConfig?.android?.versionCode ?? 3);
 const REQUEST_TIMEOUT_MS = 15000;
 
 const STORAGE_KEYS = {
@@ -474,6 +490,9 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastMessage, setLastMessage] = useState('Ready for offline use.');
+  const [appUpdate, setAppUpdate] = useState<MobileAppUpdate | null>(null);
+  const [appUpdateDownloading, setAppUpdateDownloading] = useState(false);
+  const promptedUpdateVersion = useRef<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -576,6 +595,14 @@ export default function App() {
     void refreshReferenceData();
   }, [ready, signedIn, online]);
 
+  useEffect(() => {
+    if (!ready || !online) {
+      return;
+    }
+
+    void checkForAppUpdate();
+  }, [ready, online]);
+
   const form = forms[0] ?? emptyFormSchema;
   const activeDraft = drafts.find((draft) => draft.id === activeDraftId) ?? null;
   const activeForm = activeDraft?.formSchema ?? form;
@@ -599,6 +626,78 @@ export default function App() {
       return matchesSearch && matchesExercise && matchesTargetType;
     });
   }, [facilities, search, selectedExerciseId, selectedTargetType]);
+
+  async function checkForAppUpdate() {
+    try {
+      const response = await apiGet<{ success: boolean; data: MobileAppUpdate }>('/mobile/app-version');
+      const update = response.data;
+
+      if (
+        !update ||
+        update.app_id !== CURRENT_APP_ID ||
+        !Number.isFinite(Number(update.version_code)) ||
+        Number(update.version_code) <= CURRENT_APP_VERSION_CODE ||
+        !update.download_url
+      ) {
+        return;
+      }
+
+      setAppUpdate(update);
+      if (promptedUpdateVersion.current === Number(update.version_code)) {
+        return;
+      }
+
+      promptedUpdateVersion.current = Number(update.version_code);
+      const message = update.release_notes
+        ? `${update.release_notes}\n\nCurrent version: ${CURRENT_APP_VERSION}\nAvailable version: ${update.version}`
+        : `Current version: ${CURRENT_APP_VERSION}\nAvailable version: ${update.version}`;
+      const buttons: Array<{ text: string; style?: 'cancel'; onPress?: () => void }> = [
+        { text: 'Update now', onPress: () => void installAppUpdate(update) },
+      ];
+
+      if (!update.mandatory) {
+        buttons.unshift({ text: 'Later', style: 'cancel' });
+      }
+
+      Alert.alert('Update available', message, buttons);
+    } catch {
+      // Version checks are advisory and must never block offline work.
+    }
+  }
+
+  async function installAppUpdate(update: MobileAppUpdate) {
+    if (Platform.OS !== 'android') {
+      Alert.alert('Update unavailable', 'Please update the app through your managed app distribution channel.');
+      return;
+    }
+
+    setAppUpdateDownloading(true);
+    try {
+      const apk = new File(Paths.cache, `datakit-qa-${update.version_code}.apk`);
+      const downloadedApk = await File.downloadFileAsync(update.download_url, apk, { idempotent: true });
+
+      if (update.checksum_sha256) {
+        const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, await downloadedApk.arrayBuffer());
+        const checksum = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+
+        if (checksum.toLowerCase() !== update.checksum_sha256.toLowerCase()) {
+          throw new Error('The downloaded update failed its integrity check.');
+        }
+      }
+
+      const contentUri = await getContentUriAsync(downloadedApk.uri);
+
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+        data: contentUri,
+        type: 'application/vnd.android.package-archive',
+        flags: 1,
+      });
+    } catch (error) {
+      Alert.alert('Update failed', error instanceof Error ? error.message : 'Unable to download the update.');
+    } finally {
+      setAppUpdateDownloading(false);
+    }
+  }
   const validation = activeDraft ? validateDraft(activeForm, activeDraft) : emptyValidationResult();
   const activeAssessor = mobileUser
     ? { id: mobileUser.staff_code || String(mobileUser.id), name: mobileUser.name, email: mobileUser.email }
@@ -1355,6 +1454,9 @@ export default function App() {
               onStart={() => setScreen('Targets')}
               onSync={() => setScreen('Sync')}
               onLogout={signOutMobile}
+              appUpdate={appUpdate}
+              appUpdateDownloading={appUpdateDownloading}
+              onUpdate={() => appUpdate && void installAppUpdate(appUpdate)}
               assessorName={activeAssessor.name}
               workspaces={mobileWorkspaces}
               selectedWorkspaceId={selectedWorkspaceId}
@@ -1475,6 +1577,9 @@ function HomeScreen({
   onWorkspace,
   onOpenDraft,
   onLogout,
+  appUpdate,
+  appUpdateDownloading,
+  onUpdate,
 }: {
   form: FormSchema;
   assignments: MobileAssignment[];
@@ -1494,6 +1599,9 @@ function HomeScreen({
   onWorkspace: (workspaceId: number) => void;
   onOpenDraft: (draftId: string) => void;
   onLogout: () => void;
+  appUpdate: MobileAppUpdate | null;
+  appUpdateDownloading: boolean;
+  onUpdate: () => void;
 }) {
   const activeDraft = drafts[0];
   const roundTargets = assignments
@@ -1514,6 +1622,22 @@ function HomeScreen({
           </Pressable>
         </View>
       </View>
+
+      {appUpdate ? (
+        <View style={styles.updateCard}>
+          <View style={styles.rowBetween}>
+            <View style={styles.flexOne}>
+              <Text style={styles.updateTitle}>Update available</Text>
+              <Text style={styles.muted}>Version {appUpdate.version} is ready to install.</Text>
+            </View>
+            <StatusPill label={appUpdate.mandatory ? 'Required' : 'New'} tone="success" />
+          </View>
+          {appUpdate.release_notes ? <Text style={styles.muted}>{appUpdate.release_notes}</Text> : null}
+          <View style={styles.marginTop}>
+            <SecondaryButton label={appUpdateDownloading ? 'Downloading...' : 'Update now'} icon="download" onPress={onUpdate} disabled={appUpdateDownloading} />
+          </View>
+        </View>
+      ) : null}
 
       {workspaces.length > 1 ? (
         <Pressable
@@ -4301,6 +4425,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.green50,
     padding: 14,
     marginBottom: 12,
+  },
+  updateCard: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.green700,
+    backgroundColor: colors.green50,
+    padding: 14,
+    marginBottom: 14,
+  },
+  updateTitle: {
+    color: colors.green900,
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 3,
   },
   readyIcon: {
     width: 36,
