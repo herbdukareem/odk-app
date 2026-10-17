@@ -492,6 +492,7 @@ export default function App() {
   const [lastMessage, setLastMessage] = useState('Ready for offline use.');
   const [appUpdate, setAppUpdate] = useState<MobileAppUpdate | null>(null);
   const [appUpdateDownloading, setAppUpdateDownloading] = useState(false);
+  const [appUpdateChecking, setAppUpdateChecking] = useState(false);
   const promptedUpdateVersion = useRef<number | null>(null);
 
   useEffect(() => {
@@ -627,7 +628,11 @@ export default function App() {
     });
   }, [facilities, search, selectedExerciseId, selectedTargetType]);
 
-  async function checkForAppUpdate() {
+  async function checkForAppUpdate(manual = false) {
+    if (manual) {
+      setAppUpdateChecking(true);
+    }
+
     try {
       const response = await apiGet<{ success: boolean; data: MobileAppUpdate }>('/mobile/app-version');
       const update = response.data;
@@ -639,11 +644,14 @@ export default function App() {
         Number(update.version_code) <= CURRENT_APP_VERSION_CODE ||
         !update.download_url
       ) {
-        return;
+        if (manual) {
+          Alert.alert('You are up to date', `DataKit ${CURRENT_APP_VERSION} is the latest available version.`);
+        }
+        return false;
       }
 
       setAppUpdate(update);
-      if (promptedUpdateVersion.current === Number(update.version_code)) {
+      if (!manual && promptedUpdateVersion.current === Number(update.version_code)) {
         return;
       }
 
@@ -660,8 +668,17 @@ export default function App() {
       }
 
       Alert.alert('Update available', message, buttons);
+      return true;
     } catch {
       // Version checks are advisory and must never block offline work.
+      if (manual) {
+        Alert.alert('Update check failed', 'Unable to check for updates. Please try again when you are online.');
+      }
+      return false;
+    } finally {
+      if (manual) {
+        setAppUpdateChecking(false);
+      }
     }
   }
 
@@ -1432,6 +1449,15 @@ export default function App() {
               </View>
               <View style={styles.headerActions}>
                 <StatusPill label={online ? 'Online' : 'Offline'} tone={online ? 'success' : 'warning'} />
+                <Pressable
+                  style={styles.headerUpdate}
+                  onPress={() => void checkForAppUpdate(true)}
+                  disabled={appUpdateChecking}
+                  accessibilityLabel="Check for app updates"
+                >
+                  <Feather name="download-cloud" size={14} color={colors.green800} />
+                  <Text style={styles.headerUpdateText}>{appUpdateChecking ? 'Checking' : 'Updates'}</Text>
+                </Pressable>
                 <Pressable style={styles.headerLogout} onPress={signOutMobile} accessibilityLabel="Sign out">
                   <Feather name="log-out" size={14} color={colors.green800} />
                 </Pressable>
@@ -1457,6 +1483,8 @@ export default function App() {
               appUpdate={appUpdate}
               appUpdateDownloading={appUpdateDownloading}
               onUpdate={() => appUpdate && void installAppUpdate(appUpdate)}
+              checkingForUpdate={appUpdateChecking}
+              onCheckForUpdate={() => void checkForAppUpdate(true)}
               assessorName={activeAssessor.name}
               workspaces={mobileWorkspaces}
               selectedWorkspaceId={selectedWorkspaceId}
@@ -1580,6 +1608,8 @@ function HomeScreen({
   appUpdate,
   appUpdateDownloading,
   onUpdate,
+  checkingForUpdate,
+  onCheckForUpdate,
 }: {
   form: FormSchema;
   assignments: MobileAssignment[];
@@ -1602,6 +1632,8 @@ function HomeScreen({
   appUpdate: MobileAppUpdate | null;
   appUpdateDownloading: boolean;
   onUpdate: () => void;
+  checkingForUpdate: boolean;
+  onCheckForUpdate: () => void;
 }) {
   const activeDraft = drafts[0];
   const roundTargets = assignments
@@ -1617,6 +1649,15 @@ function HomeScreen({
         </View>
         <View style={styles.headerActions}>
           <StatusPill label={online ? 'Online' : 'Offline'} tone={online ? 'success' : 'warning'} />
+          <Pressable
+            style={styles.headerUpdate}
+            onPress={onCheckForUpdate}
+            disabled={checkingForUpdate}
+            accessibilityLabel="Check for app updates"
+          >
+            <Feather name="download-cloud" size={14} color={colors.green800} />
+            <Text style={styles.headerUpdateText}>{checkingForUpdate ? 'Checking' : 'Updates'}</Text>
+          </Pressable>
           <Pressable style={styles.headerLogout} onPress={onLogout} accessibilityLabel="Sign out">
             <Feather name="log-out" size={14} color={colors.green800} />
           </Pressable>
@@ -3685,6 +3726,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     flexShrink: 0,
+  },
+  headerUpdate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minHeight: 32,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: colors.green100,
+    borderRadius: 16,
+    backgroundColor: colors.white,
+  },
+  headerUpdateText: {
+    color: colors.green800,
+    fontSize: 10,
+    fontWeight: '900',
   },
   headerLogout: {
     alignItems: 'center',
