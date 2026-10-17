@@ -1,6 +1,7 @@
 /vendor
 /node_modules
 /public/build
+/public/hot
 /.env
 /database/database.sqlite
 /storage/*.key

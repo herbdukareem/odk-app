@@ -533,6 +533,18 @@ h3 {
   height: 52px;
 }
 
+.auth-brand-link,
+.landing-brand-link {
+  display: inline-flex;
+  border-radius: 8px;
+}
+
+.auth-brand-link:focus-visible,
+.landing-brand-link:focus-visible {
+  outline: 2px solid var(--qds-green-500);
+  outline-offset: 4px;
+}
+
 .brand-symbol {
   display: grid;
   place-items: center;
@@ -585,6 +597,33 @@ h3 {
   background: var(--qds-white);
 }
 
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+}
+
+.brand-link {
+  display: inline-flex;
+  min-width: 0;
+  border-radius: 6px;
+}
+
+.brand-link:focus-visible {
+  outline: 2px solid var(--qds-green-500);
+  outline-offset: 3px;
+}
+
+.mobile-sidebar-close,
+.mobile-menu-button {
+  display: none;
+}
+
+.app-sidebar__scrim {
+  display: none;
+}
+
 .sidebar-nav {
   display: grid;
   gap: 3px;
@@ -628,6 +667,10 @@ h3 {
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.mobile-menu-button {
+  flex: 0 0 auto;
 }
 
 .workspace-switcher {
@@ -2258,8 +2301,35 @@ h3 {
   }
 
   .app-sidebar {
-    display: none;
+    display: block;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(82vw, 280px);
+    min-height: 100dvh;
+    padding: 14px 12px;
+    box-shadow: 12px 0 30px rgba(15, 35, 28, 0.18);
+    transform: translateX(-105%);
+    transition: transform 180ms ease;
   }
+
+  .app-sidebar--open {
+    transform: translateX(0);
+  }
+
+  .app-sidebar__scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(15, 35, 28, 0.38);
+  }
+
+  .mobile-sidebar-close,
+  .mobile-menu-button {
+    display: inline-flex;
+  }
+
   .field-editor-modal {
     align-items: stretch;
     padding: 12px;
@@ -2271,7 +2341,28 @@ h3 {
   }
 
   .topbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .mobile-menu-button {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .topbar > .qds-search {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .topbar > .qds-icon-button:not(.mobile-menu-button) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .impersonation-banner {
+    grid-column: 1 / -1;
+    order: -1;
   }
 
   .workspace-switcher {

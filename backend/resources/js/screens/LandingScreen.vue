@@ -1,7 +1,9 @@
 <template>
   <main class="landing-screen">
     <header class="landing-nav">
-      <BrandMark />
+      <a class="landing-brand-link" href="/" aria-label="Go to DataKit home">
+        <BrandMark />
+      </a>
       <div class="landing-nav__actions">
         <span class="landing-status"><span />Online workspace</span>
         <QdsButton as="a" href="/register" variant="secondary">Create workspace</QdsButton>

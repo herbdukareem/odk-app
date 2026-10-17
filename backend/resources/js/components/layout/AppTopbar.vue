@@ -4,6 +4,7 @@
       <span>Viewing as <strong>{{ user?.name || user?.email }}</strong></span>
       <button type="button" @click="$emit('stop-impersonation')">Return to admin</button>
     </div>
+    <QdsIconButton class="mobile-menu-button" icon="menu" aria-label="Open navigation" @click="$emit('menu')" />
     <QdsSearch placeholder="Search forms, facilities, submissions..." />
     <label v-if="workspaces.length > 1" class="workspace-switcher">
       <span>Workspace</span>
@@ -51,5 +52,6 @@ defineEmits<{
   logout: [];
   'stop-impersonation': [];
   'workspace-switch': [workspaceId: number];
+  menu: [];
 }>();
 </script>

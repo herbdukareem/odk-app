@@ -9,7 +9,14 @@
   <AuthScreen v-else-if="!signedIn" @signed-in="handleSignedIn" @register="openRegister" />
 
   <div v-else class="app-frame">
-    <AppSidebar :items="visibleNavItems" :active="activeSection" @select="openSection" />
+    <AppSidebar
+      :items="visibleNavItems"
+      :active="activeSection"
+      :open="mobileNavOpen"
+      @select="openSection"
+      @home="goHome"
+      @close="closeMobileNav"
+    />
 
     <section class="app-workspace">
       <AppTopbar
@@ -21,6 +28,7 @@
         @logout="logout"
         @stop-impersonation="stopImpersonation"
         @workspace-switch="switchWorkspace"
+        @menu="mobileNavOpen = true"
       />
 
       <DashboardScreen v-if="currentView === 'dashboard'" @navigate="openSection" />
@@ -96,6 +104,7 @@ const activeSection = ref<NavLabel>('Dashboard');
 const currentView = ref<AppView>('dashboard');
 const selectedFormSlug = ref('nicare-qa-checklist');
 const assignmentSeedExerciseId = ref('');
+const mobileNavOpen = ref(false);
 
 const navItems: Array<NavItem & { label: NavLabel }> = [
   { label: 'Dashboard', icon: 'dashboard' },
@@ -207,11 +216,21 @@ const navigate = (path: string, replace = false) => {
 
 const openSection = (label: string) => {
   const section = label as NavLabel;
+  closeMobileNav();
   navigate(sectionPaths[section] || '/dashboard');
 };
 
 const openLogin = () => {
   navigate('/login');
+};
+
+const goHome = () => {
+  closeMobileNav();
+  navigate('/dashboard');
+};
+
+const closeMobileNav = () => {
+  mobileNavOpen.value = false;
 };
 
 const openRegister = () => {

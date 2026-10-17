@@ -1,7 +1,9 @@
 <template>
   <main class="auth-screen register-screen">
     <section class="auth-brand">
-      <BrandMark theme="light" />
+      <a class="auth-brand-link" href="/" aria-label="Go to DataKit home">
+        <BrandMark theme="light" />
+      </a>
       <div class="auth-illustration">
         <img :src="illustrationUrl" alt="A health centre with a field assessor syncing a completed checklist from a phone">
       </div>

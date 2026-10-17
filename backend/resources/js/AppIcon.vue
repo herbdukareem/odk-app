@@ -35,6 +35,12 @@ const props = defineProps<{
 }>();
 
 const icons: Record<string, IconShape> = {
+  menu: {
+    paths: ['M4 6h16', 'M4 12h16', 'M4 18h16'],
+  },
+  close: {
+    paths: ['M6 6l12 12', 'M18 6 6 18'],
+  },
   leaf: {
     paths: ['M11 20A7 7 0 0 1 4 13C4 5 12 3 20 3c0 8-2 16-9 16Z', 'M4 13c4 0 8-2 12-6'],
   },
