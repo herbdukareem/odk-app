@@ -1334,7 +1334,6 @@ h3 {
 .section-pill {
   display: flex;
   align-items: center;
-  gap: 8px;
   gap: 3px;
   width: 100%;
   min-height: 48px;
@@ -1345,6 +1344,42 @@ h3 {
   background: var(--qds-white);
   cursor: pointer;
   text-align: left;
+}
+
+.section-pill {
+  transition: border-color 120ms ease, background 120ms ease, opacity 120ms ease;
+}
+
+.section-pill[draggable="true"] {
+  cursor: grab;
+}
+
+.section-pill--dragging {
+  opacity: 0.52;
+}
+
+.section-pill--drag-over {
+  border-color: var(--qds-green-600);
+  background: var(--qds-green-50);
+  box-shadow: inset 3px 0 0 var(--qds-green-600);
+}
+
+.section-drag-handle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 18px;
+  color: var(--qds-slate-500);
+}
+
+.section-drag-handle .app-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.section-order-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .section-pill__select {

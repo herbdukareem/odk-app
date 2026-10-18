@@ -217,6 +217,13 @@ export const createFormSection = async (slug: string, payload: Partial<BuilderSe
   return response.data;
 };
 
+export const reorderFormSections = async (slug: string, sectionIds: number[]): Promise<AssessmentForm> => {
+  const response = await writeJson<ApiEnvelope<AssessmentForm>>(`/api/forms/${slug}/sections/order`, 'PUT', {
+    section_ids: sectionIds,
+  });
+  return response.data;
+};
+
 export const updateFormField = async (slug: string, fieldId: number, payload: Partial<BuilderField>): Promise<BuilderField> => {
   const response = await writeJson<ApiEnvelope<BuilderField>>(`/api/forms/${slug}/fields/${fieldId}`, 'PATCH', payload);
   return response.data;

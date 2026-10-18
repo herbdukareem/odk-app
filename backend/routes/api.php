@@ -92,6 +92,7 @@ Route::middleware(['auth:sanctum', ResolveOdkWorkspace::class])->group(function 
     Route::patch('/forms/{form:slug}', [AssessmentFormController::class, 'update']);
     Route::post('/forms/{form:slug}/clone', [AssessmentFormController::class, 'clone']);
     Route::post('/forms/{form:slug}/sections', [AssessmentFormController::class, 'storeSection']);
+    Route::put('/forms/{form:slug}/sections/order', [AssessmentFormController::class, 'reorderSections']);
     Route::delete('/forms/{form:slug}/sections/{section}', [AssessmentFormController::class, 'destroySection']);
     Route::post('/forms/{form:slug}/fields', [AssessmentFormController::class, 'storeField']);
     Route::put('/forms/{form:slug}/fields/order', [AssessmentFormController::class, 'reorderFields']);

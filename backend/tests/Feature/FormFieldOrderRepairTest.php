@@ -158,4 +158,71 @@ class FormFieldOrderRepairTest extends TestCase
             ->assertJsonPath('data.target_type', 'facility')
             ->assertJsonCount(2, 'data.fields');
     }
+
+    public function test_workspace_manager_can_reorder_sections_and_stale_orders_are_rejected(): void
+    {
+        $role = OdkRole::firstOrCreate(
+            ['key' => 'member'],
+            ['name' => 'Member', 'description' => null, 'permissions' => [], 'sort_order' => 1]
+        );
+        $user = OdkUser::create([
+            'uuid' => (string) Str::uuid(),
+            'odk_role_id' => $role->id,
+            'name' => 'Section Owner',
+            'email' => 'section-owner@example.com',
+            'status' => OdkUser::STATUS_ACTIVE,
+            'password' => Hash::make('password'),
+        ]);
+        $workspace = OdkWorkspace::create([
+            'uuid' => (string) Str::uuid(),
+            'slug' => 'section-workspace',
+            'name' => 'Section workspace',
+            'type' => OdkWorkspace::TYPE_ORGANIZATION,
+            'status' => OdkWorkspace::STATUS_ACTIVE,
+            'owner_user_id' => $user->id,
+        ]);
+        $workspace->users()->attach($user->id, [
+            'role_key' => 'owner',
+            'status' => 'active',
+            'joined_at' => now(),
+        ]);
+
+        $token = $user->createToken('test')->plainTextToken;
+        $form = $this->withToken($token)->postJson('/api/forms', [
+            'title' => 'Section order form',
+            'requires_scoring' => false,
+        ])->assertCreated()->json('data');
+        $second = $this->withToken($token)->postJson('/api/forms/'.$form['slug'].'/sections', [
+            'label' => 'Second section',
+            'key' => 'second',
+        ])->assertCreated()->json('data');
+        $third = $this->withToken($token)->postJson('/api/forms/'.$form['slug'].'/sections', [
+            'label' => 'Third section',
+            'key' => 'third',
+        ])->assertCreated()->json('data');
+
+        $this->withToken($token)
+            ->putJson('/api/forms/'.$form['slug'].'/sections/order', [
+                'section_ids' => [$third['id'], $form['sections'][0]['id'], $second['id']],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.sections.0.id', $third['id'])
+            ->assertJsonPath('data.sections.1.id', $form['sections'][0]['id'])
+            ->assertJsonPath('data.sections.2.id', $second['id']);
+
+        $this->assertSame(
+            [$third['id'], $form['sections'][0]['id'], $second['id']],
+            AssessmentFormSection::query()
+                ->where('assessment_form_id', $form['id'])
+                ->orderBy('sort_order')
+                ->pluck('id')
+                ->all()
+        );
+
+        $this->withToken($token)
+            ->putJson('/api/forms/'.$form['slug'].'/sections/order', [
+                'section_ids' => [$second['id']],
+            ])
+            ->assertStatus(422);
+    }
 }

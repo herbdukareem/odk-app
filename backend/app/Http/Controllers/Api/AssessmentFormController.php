@@ -245,6 +245,59 @@ class AssessmentFormController
         return response()->json(['success' => true, 'data' => $field->load('options')], 201);
     }
 
+    public function reorderSections(Request $request, AssessmentForm $form): JsonResponse
+    {
+        $this->assertManager($request);
+
+        $data = $request->validate([
+            'section_ids' => ['required', 'array', 'min:1'],
+            'section_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $sectionIds = array_map('intval', $data['section_ids']);
+        $storedSectionIds = $form->sections()
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->sort()
+            ->values()
+            ->all();
+        $requestedSectionIds = collect($sectionIds)->sort()->values()->all();
+
+        abort_unless(
+            $storedSectionIds === $requestedSectionIds,
+            422,
+            'The section order is out of date. Refresh the form and try again.'
+        );
+
+        DB::transaction(function () use ($form, $sectionIds): void {
+            $sections = $form->sections()
+                ->whereIn('id', $sectionIds)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            foreach ($sectionIds as $index => $sectionId) {
+                $section = $sections->get($sectionId);
+                if ($section && (int) $section->sort_order !== $index + 1) {
+                    $section->updateQuietly(['sort_order' => $index + 1]);
+                }
+            }
+
+            $this->markDraft($form);
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $form->fresh()->load([
+                'currentVersion',
+                'versions' => fn ($query) => $query->orderByDesc('version'),
+                'sections.fields.options',
+                'fields.options',
+                'builderRules.field',
+            ]),
+        ]);
+    }
+
     public function updateField(Request $request, AssessmentForm $form, AssessmentFormField $field): JsonResponse
     {
         abort_unless((int) $field->assessment_form_id === (int) $form->id, 404);
@@ -531,7 +584,7 @@ class AssessmentFormController
         abort_unless(
             app(OdkWorkspaceContext::class)->userCanManage($request->user()),
             403,
-            'Only workspace owners and admins can reorder form fields.'
+            'Only workspace owners and admins can reorder form content.'
         );
     }
 

@@ -100,14 +100,48 @@
           <div
             v-for="section in builderSections"
             :key="section.key"
-            :class="['section-pill', selectedSectionKey === section.key && 'active']"
+            :class="[
+              'section-pill',
+              selectedSectionKey === section.key && 'active',
+              draggedSectionKey === section.key && 'section-pill--dragging',
+              dragOverSectionKey === section.key && 'section-pill--drag-over',
+            ]"
+            :draggable="Boolean(section.id) && !reorderSaving"
+            @dragstart="startSectionDrag(section, $event)"
+            @dragover.prevent="dragOverSection(section)"
+            @drop.prevent="dropSection(section, $event)"
+            @dragend="endSectionDrag"
           >
+            <span class="section-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">
+              <AppIcon name="drag" />
+            </span>
             <button class="section-pill__select" type="button" @click="selectedSectionKey = section.key">
               <strong>{{ section.label }}</strong>
               <span>{{ sectionFieldCount(section.key) }} fields</span>
             </button>
+            <div class="section-order-actions">
+              <QdsIconButton
+                icon="arrowUp"
+                tiny
+                :disabled="sectionIndex(section) === 0 || reorderSaving"
+                :title="`Move ${section.label} up`"
+                :aria-label="`Move ${section.label} up`"
+                @click="moveSection(section, -1)"
+              />
+              <QdsIconButton
+                icon="arrowDown"
+                tiny
+                :disabled="sectionIndex(section) === builderSections.length - 1 || reorderSaving"
+                :title="`Move ${section.label} down`"
+                :aria-label="`Move ${section.label} down`"
+                @click="moveSection(section, 1)"
+              />
+            </div>
             <QdsButton v-if="section.id" variant="tiny" @click="removeSection(section)">Remove</QdsButton>
           </div>
+          <p v-if="builderSections.length > 1" class="builder-order-hint">
+            Drag a section or use the arrow buttons to change its order. Changes save automatically.
+          </p>
         </aside>
 
         <section class="builder-panel">
@@ -441,6 +475,7 @@ import {
   getAssessmentForm,
   publishAssessmentForm,
   repairAssessmentFormFieldOrder,
+  reorderFormSections,
   reorderFormFields,
   statusTone,
   testFormRules,
@@ -508,6 +543,8 @@ const selectedSectionKey = ref('assessment_metadata');
 const showSectionCreator = ref(false);
 const showFieldEditor = ref(false);
 const notice = ref('');
+const draggedSectionKey = ref<string | null>(null);
+const dragOverSectionKey = ref<string | null>(null);
 const draggedFieldKey = ref<string | null>(null);
 const dragOverFieldKey = ref<string | null>(null);
 const reorderSaving = ref(false);
@@ -673,6 +710,7 @@ const versionRows = computed(() => {
 const sectionKey = (field: BuilderField) => field.section?.key ?? field.section_key ?? builderSections.value.find((section) => section.id === field.assessment_form_section_id)?.key ?? '';
 const sectionLabel = (field: BuilderField) => builderSections.value.find((section) => section.key === sectionKey(field))?.label ?? sectionKey(field) ?? 'General';
 const sectionFieldCount = (key: string) => builderFields.value.filter((field) => sectionKey(field) === key).length;
+const sectionIndex = (section: BuilderSection) => builderSections.value.findIndex((item) => item.key === section.key);
 const slugifyKey = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 const hasScoredOptions = (field: BuilderField) => Boolean(field.options?.some((option) => option.score !== null && option.score !== undefined));
 const isFieldScorable = (field: BuilderField) => requiresScoring.value && Boolean(field.settings?.scorable ?? hasScoredOptions(field));
@@ -1046,6 +1084,103 @@ const reorderVisibleFields = async (field: BuilderField, offset: number) => {
 
 const moveField = (field: BuilderField, offset: number) => {
   void reorderVisibleFields(field, offset);
+};
+
+const startSectionDrag = (section: BuilderSection, event: DragEvent) => {
+  if (!section.id || reorderSaving.value) {
+    event.preventDefault();
+    return;
+  }
+
+  draggedSectionKey.value = section.key;
+  dragOverSectionKey.value = null;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', section.key);
+  }
+};
+
+const dragOverSection = (section: BuilderSection) => {
+  if (draggedSectionKey.value && draggedSectionKey.value !== section.key) {
+    dragOverSectionKey.value = section.key;
+  }
+};
+
+const endSectionDrag = () => {
+  draggedSectionKey.value = null;
+  dragOverSectionKey.value = null;
+};
+
+const persistSectionOrder = async (orderedSections: BuilderSection[], previousOrders: Map<number, number | undefined>) => {
+  const sectionIds = orderedSections.map((section) => section.id).filter((id): id is number => typeof id === 'number');
+  if (sectionIds.length !== orderedSections.length || sectionIds.length === 0) {
+    notice.value = 'This form needs to be loaded from the workspace before sections can be reordered.';
+    return;
+  }
+
+  formModel.sections?.forEach((section) => {
+    const index = sectionIds.indexOf(section.id ?? -1);
+    if (index !== -1) section.sort_order = index + 1;
+  });
+
+  reorderSaving.value = true;
+  notice.value = 'Saving section order...';
+
+  try {
+    applyForm(await reorderFormSections(formModel.slug, sectionIds));
+    notice.value = 'Section order saved. Publish the form to send it to mobile devices.';
+  } catch (error) {
+    formModel.sections?.forEach((section) => {
+      if (section.id !== undefined && previousOrders.has(section.id)) {
+        section.sort_order = previousOrders.get(section.id);
+      }
+    });
+    notice.value = error instanceof Error ? error.message : 'Unable to save section order.';
+  } finally {
+    reorderSaving.value = false;
+  }
+};
+
+const reorderSections = async (section: BuilderSection, offset: number) => {
+  if (!section.id || reorderSaving.value) return;
+
+  const currentSections = [...builderSections.value];
+  const currentIndex = currentSections.findIndex((item) => item.key === section.key);
+  const nextIndex = currentIndex + offset;
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentSections.length) return;
+
+  const previousOrders = new Map<number, number | undefined>();
+  currentSections.forEach((item) => {
+    if (item.id !== undefined) previousOrders.set(item.id, item.sort_order);
+  });
+
+  const [movedSection] = currentSections.splice(currentIndex, 1);
+  currentSections.splice(nextIndex, 0, movedSection);
+  await persistSectionOrder(currentSections, previousOrders);
+};
+
+const moveSection = (section: BuilderSection, offset: number) => {
+  void reorderSections(section, offset);
+};
+
+const dropSection = (targetSection: BuilderSection, event?: DragEvent) => {
+  const sourceKey = event?.dataTransfer?.getData('text/plain') || draggedSectionKey.value;
+  endSectionDrag();
+  if (!sourceKey || sourceKey === targetSection.key || reorderSaving.value) return;
+
+  const currentSections = [...builderSections.value];
+  const sourceIndex = currentSections.findIndex((section) => section.key === sourceKey);
+  const targetIndex = currentSections.findIndex((section) => section.key === targetSection.key);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+
+  const previousOrders = new Map<number, number | undefined>();
+  currentSections.forEach((section) => {
+    if (section.id !== undefined) previousOrders.set(section.id, section.sort_order);
+  });
+
+  const [movedSection] = currentSections.splice(sourceIndex, 1);
+  currentSections.splice(targetIndex, 0, movedSection);
+  void persistSectionOrder(currentSections, previousOrders);
 };
 
 const dropField = (targetField: BuilderField, event?: DragEvent) => {
