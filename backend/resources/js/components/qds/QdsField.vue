@@ -7,7 +7,7 @@
         {{ optionLabel(option) }}
       </option>
     </select>
-    <input v-else :type="type" :min="min" :max="max" :value="modelValue" @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)">
+    <input v-else :type="type" :min="min" :max="max" :readonly="readonly" :value="modelValue" @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)">
   </label>
 </template>
 
@@ -21,6 +21,7 @@ withDefaults(defineProps<{
   label: string;
   modelValue?: string;
   type?: string;
+  readonly?: boolean;
   min?: string | number;
   max?: string | number;
   textarea?: boolean;
@@ -29,6 +30,7 @@ withDefaults(defineProps<{
 }>(), {
   modelValue: '',
   type: 'text',
+  readonly: false,
   textarea: false,
   rows: 4,
   options: () => [],

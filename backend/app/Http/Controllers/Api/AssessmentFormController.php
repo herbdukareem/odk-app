@@ -33,8 +33,10 @@ class AssessmentFormController
         ]);
     }
 
-    public function show(AssessmentForm $form): JsonResponse
+    public function show(AssessmentForm $form, FormBuilderSnapshotService $snapshots): JsonResponse
     {
+        $snapshots->synchronizeScoringMaximum($form);
+
         return response()->json([
             'success' => true,
             'data' => $form->load([
@@ -67,7 +69,7 @@ class AssessmentFormController
             'target_audience' => $data['target_audience'] ?? 'Facility assessment teams',
             'target_type' => $data['target_type'] ?? OdkTarget::TYPE_FACILITY,
             'requires_scoring' => (bool) ($data['requires_scoring'] ?? false),
-            'scoring_max_score' => ($data['requires_scoring'] ?? false) ? ($data['scoring_max_score'] ?? null) : null,
+            'scoring_max_score' => ($data['requires_scoring'] ?? false) ? 0 : null,
             'status' => AssessmentForm::STATUS_DRAFT,
         ]);
 
@@ -84,7 +86,7 @@ class AssessmentFormController
         ], 201);
     }
 
-    public function update(Request $request, AssessmentForm $form): JsonResponse
+    public function update(Request $request, AssessmentForm $form, FormBuilderSnapshotService $snapshots): JsonResponse
     {
         $data = $request->validate([
             'title' => ['required', 'string', 'max:255'],
@@ -95,15 +97,14 @@ class AssessmentFormController
             'scoring_max_score' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        if (!($data['requires_scoring'] ?? false)) {
-            $data['scoring_max_score'] = null;
-        }
+        unset($data['scoring_max_score']);
 
         $form->fill($data);
         if ($form->status === AssessmentForm::STATUS_PUBLISHED) {
             $form->status = AssessmentForm::STATUS_DRAFT;
         }
         $form->save();
+        $snapshots->synchronizeScoringMaximum($form);
 
         return response()->json([
             'success' => true,
@@ -203,6 +204,8 @@ class AssessmentFormController
                     ]),
                 ]);
             }
+
+            app(FormBuilderSnapshotService::class)->synchronizeScoringMaximum($clone);
 
             return $clone;
         });
@@ -492,9 +495,7 @@ class AssessmentFormController
 
         $this->replaceOptions($field, $data['options'] ?? []);
 
-        if ($form->status === AssessmentForm::STATUS_PUBLISHED) {
-            $form->forceFill(['status' => AssessmentForm::STATUS_DRAFT])->save();
-        }
+        $this->markDraft($form);
 
         return $field;
     }
@@ -577,6 +578,7 @@ class AssessmentFormController
         if ($form->status === AssessmentForm::STATUS_PUBLISHED) {
             $form->forceFill(['status' => AssessmentForm::STATUS_DRAFT])->save();
         }
+        app(FormBuilderSnapshotService::class)->synchronizeScoringMaximum($form);
     }
 
     private function assertManager(Request $request): void

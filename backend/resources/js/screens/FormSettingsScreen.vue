@@ -54,9 +54,10 @@
             </div>
             <QdsField
               v-if="requiresScoring"
-              v-model="scoringMaxScore"
+              :model-value="scoringMaxScore"
               label="Maximum score"
               type="number"
+              readonly
             />
           </div>
 
@@ -538,7 +539,6 @@ const targetAudience = ref('Facility assessment teams');
 const defaultAssignment = ref('Any team member');
 const offlineEnabled = ref(true);
 const requiresScoring = ref(false);
-const scoringMaxScore = ref('');
 const selectedSectionKey = ref('assessment_metadata');
 const showSectionCreator = ref(false);
 const showFieldEditor = ref(false);
@@ -624,7 +624,7 @@ const builderSections = computed<BuilderSection[]>(() => {
 });
 
 const builderFields = computed<BuilderField[]>(() => {
-  if (Array.isArray(formModel.fields) && formModel.fields.length > 0) {
+  if (Array.isArray(formModel.fields)) {
     return [...formModel.fields]
       .filter((field) => field.type !== 'signature')
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -642,6 +642,7 @@ const builderFields = computed<BuilderField[]>(() => {
       section_key: String(record.section ?? ''),
       required: Boolean(record.required),
       validation_rules: Array.isArray(record.rules) ? record.rules.map(String) : [],
+      settings: typeof record.scorable === 'boolean' ? { scorable: record.scorable } : null,
       options: Array.isArray(record.options) ? record.options as BuilderField['options'] : [],
       sort_order: Number(record.order ?? index + 1),
     };
@@ -714,6 +715,16 @@ const sectionIndex = (section: BuilderSection) => builderSections.value.findInde
 const slugifyKey = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 const hasScoredOptions = (field: BuilderField) => Boolean(field.options?.some((option) => option.score !== null && option.score !== undefined));
 const isFieldScorable = (field: BuilderField) => requiresScoring.value && Boolean(field.settings?.scorable ?? hasScoredOptions(field));
+const scoringMaxScore = computed(() => {
+  const total = builderFields.value.filter(isFieldScorable).reduce((sum, field) => {
+    const scores = (field.options ?? [])
+      .filter((option) => option.score !== null && option.score !== undefined)
+      .map((option) => Number(option.score))
+      .filter(Number.isFinite);
+    return sum + Math.max(0, ...scores);
+  }, 0);
+  return total.toFixed(2);
+});
 
 const optionsForField = (fieldKey: string): BuilderOption[] => {
   if (!fieldKey) return [];
@@ -839,14 +850,11 @@ const resetSectionDraft = () => {
 };
 
 const applyForm = (form: AssessmentForm) => {
-  Object.assign(formModel, form);
+  Object.assign(formModel, form, { fields: form.fields });
   description.value = form.description ?? '';
   targetAudience.value = form.target_audience ?? 'Facility assessment teams';
   offlineEnabled.value = form.current_version?.offline_enabled ?? true;
   requiresScoring.value = Boolean(form.requires_scoring ?? form.current_version?.requires_scoring);
-  scoringMaxScore.value = form.scoring_max_score === null || form.scoring_max_score === undefined
-    ? String(form.current_version?.scoring_max_score ?? '')
-    : String(form.scoring_max_score);
 
   if (builderSections.value.length > 0 && !builderSections.value.some((section) => section.key === selectedSectionKey.value)) {
     selectedSectionKey.value = builderSections.value[0].key;
@@ -864,7 +872,6 @@ const saveOverview = async () => {
     description: description.value,
     target_audience: targetAudience.value,
     requires_scoring: requiresScoring.value,
-    scoring_max_score: requiresScoring.value && scoringMaxScore.value !== '' ? Number(scoringMaxScore.value) : null,
   }));
   notice.value = 'Draft details saved.';
 };

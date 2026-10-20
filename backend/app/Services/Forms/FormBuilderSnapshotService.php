@@ -26,6 +26,13 @@ class FormBuilderSnapshotService
             ->values()
             ->all();
 
+        $maximumScore = $form->requires_scoring
+            ? round(collect($fields)
+                ->filter(fn (array $field) => $this->fieldIsScorable($field))
+                ->sum(fn (array $field) => max(0, (float) (collect($field['options'] ?? [])
+                    ->pluck('score')->filter(fn ($score) => is_numeric($score))->max() ?? 0))), 2)
+            : null;
+
         return [
             'metadata_schema' => [
                 'facility_source' => 'new-web',
@@ -33,7 +40,7 @@ class FormBuilderSnapshotService
                 'requires_assessor_snapshot' => true,
                 'requires_device_snapshot' => true,
                 'requires_scoring' => (bool) $form->requires_scoring,
-                'scoring_max_score' => $form->scoring_max_score === null ? null : (float) $form->scoring_max_score,
+                'scoring_max_score' => $maximumScore,
             ],
             'sections' => $form->sections
                 ->map(fn ($section) => [
@@ -58,6 +65,12 @@ class FormBuilderSnapshotService
         ];
     }
 
+    public function synchronizeScoringMaximum(AssessmentForm $form): void
+    {
+        $snapshot = $this->build($form->fresh());
+        $form->forceFill(['scoring_max_score' => $snapshot['metadata_schema']['scoring_max_score']])->saveQuietly();
+    }
+
     public function publish(AssessmentForm $form): AssessmentFormVersion
     {
         return DB::transaction(function () use ($form): AssessmentFormVersion {
@@ -71,7 +84,7 @@ class FormBuilderSnapshotService
                 'status' => AssessmentFormVersion::STATUS_PUBLISHED,
                 'offline_enabled' => true,
                 'requires_scoring' => (bool) $form->requires_scoring,
-                'scoring_max_score' => $form->scoring_max_score,
+                'scoring_max_score' => $snapshot['metadata_schema']['scoring_max_score'],
                 'metadata_schema' => $snapshot['metadata_schema'],
                 'sections' => $snapshot['sections'],
                 'fields' => $snapshot['fields'],
@@ -85,6 +98,7 @@ class FormBuilderSnapshotService
             ]);
 
             $form->forceFill([
+                'scoring_max_score' => $snapshot['metadata_schema']['scoring_max_score'],
                 'current_version_id' => $version->id,
                 'status' => AssessmentForm::STATUS_PUBLISHED,
                 'published_at' => now(),
