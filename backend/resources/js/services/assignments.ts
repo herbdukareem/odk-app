@@ -94,7 +94,8 @@ export type AssignmentsPayload = {
 };
 
 export type AssignmentCreatePayload = {
-  assessment_exercise_id: number;
+  assessment_exercise_id?: number;
+  assessment_exercise_ids?: number[];
   assignee_type: AssignmentAssigneeType;
   assignee_id: number;
   facility_ids?: number[];

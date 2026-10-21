@@ -101,17 +101,19 @@
     </div>
 
     <div v-if="showModal" class="field-editor-modal" @click.self="closeModal">
-      <div class="field-editor field-editor-modal__panel assignment-modal-panel" role="dialog" aria-modal="true" @click.stop>
+      <div class="field-editor field-editor-modal__panel assignment-modal-panel" role="dialog" aria-modal="true" :aria-label="editingUuid ? 'Edit assignment' : 'New assignment'" @click.stop>
         <div class="builder-heading">
           <div>
             <h2>{{ editingUuid ? 'Edit assignment' : 'New assignment' }}</h2>
-            <p>One assignment is created for each selected target.</p>
+            <p v-if="!editingUuid">{{ plannedAssignmentCount }} assignment{{ plannedAssignmentCount === 1 ? '' : 's' }}</p>
           </div>
-          <QdsButton variant="secondary" @click="closeModal">Close</QdsButton>
+          <QdsButton variant="secondary" :disabled="saving" @click="closeModal">Close</QdsButton>
         </div>
 
-        <div class="assignment-form-grid">
-          <QdsField v-model="draft.assessment_exercise_id" label="Exercise" :options="exerciseOptionsForSelect" :disabled="Boolean(editingUuid)" />
+        <p v-if="modalError" class="builder-notice" role="alert">{{ modalError }}</p>
+        <fieldset class="assignment-form-grid" :disabled="saving" style="border: 0; padding: 0; margin: 0; min-width: 0;">
+          <QdsField v-if="editingUuid" :model-value="editingExerciseName" label="Exercise" readonly />
+          <QdsMultiSelect v-else :model-value="draft.assessment_exercise_ids" label="Exercises" :options="exerciseOptionsForSelect" :disabled="saving" @update:model-value="updateExercises" />
           <QdsField v-model="draft.target_type" label="Target type" :options="targetTypeOptions" :disabled="Boolean(editingUuid)" />
           <div class="two-column-fields">
             <QdsField v-model="draft.assignee_type" label="Assign to" :options="assigneeTypeOptions" />
@@ -119,13 +121,13 @@
           </div>
           <div class="two-column-fields">
             <QdsField v-model="draft.status" label="Status" :options="statusOptions" />
-            <QdsField v-model="draft.due_at" label="Due date" type="date" />
+            <QdsField v-model="draft.due_at" label="Due date (optional)" type="date" />
           </div>
           <label class="rule-choice assignment-toggle">
             <input v-model="draft.allow_duplicate_submission" type="checkbox">
-            <span>Allow duplicate facility submissions for this exercise</span>
+            <span>Allow duplicate facility submissions</span>
           </label>
-        </div>
+        </fieldset>
 
         <div v-if="!editingUuid && draft.target_type === 'facility'" class="member-picker assignment-facility-picker">
           <div class="builder-heading">
@@ -139,6 +141,7 @@
             <input
               type="checkbox"
               :checked="draft.facility_ids.includes(facility.id)"
+              :disabled="saving"
               @change="toggleFacility(facility.id)"
             >
             <span>{{ facility.name }}</span>
@@ -149,7 +152,7 @@
         <div v-if="!editingUuid && draft.target_type && draft.target_type !== 'facility' && draft.target_type !== 'no_target'" class="member-picker assignment-facility-picker">
           <div class="builder-heading"><div><h3>{{ titleCase(draft.target_type) }} targets</h3><p>{{ draft.target_ids.length }} selected</p></div><QdsSearch v-model="facilitySearch" compact placeholder="Search targets..." /></div>
           <label v-for="target in filteredTargets" :key="target.id" class="member-choice">
-            <input type="checkbox" :checked="draft.target_ids.includes(target.id)" @change="toggleTarget(target.id)">
+            <input type="checkbox" :checked="draft.target_ids.includes(target.id)" :disabled="saving" @change="toggleTarget(target.id)">
             <span>{{ target.name }}</span><small>{{ target.external_id || 'No external ID' }}</small>
           </label>
         </div>
@@ -159,8 +162,8 @@
           <span>Target cannot be changed after assignment creation. Create a new assignment for another target.</span>
         </div>
 
-        <QdsButton icon="save" block @click="saveAssignment">
-          {{ editingUuid ? 'Save assignment' : 'Create assignments' }}
+        <QdsButton icon="save" block :disabled="saving || (!editingUuid && plannedAssignmentCount === 0)" @click="saveAssignment">
+          {{ saving ? 'Saving...' : editingUuid ? 'Save assignment' : `Create ${plannedAssignmentCount} assignment${plannedAssignmentCount === 1 ? '' : 's'}` }}
         </QdsButton>
       </div>
     </div>
@@ -175,6 +178,7 @@ import QdsBadge from '../components/qds/QdsBadge.vue';
 import QdsButton from '../components/qds/QdsButton.vue';
 import QdsCard from '../components/qds/QdsCard.vue';
 import QdsField from '../components/qds/QdsField.vue';
+import QdsMultiSelect from '../components/qds/QdsMultiSelect.vue';
 import QdsSearch from '../components/qds/QdsSearch.vue';
 import {
   createAssessmentAssignments,
@@ -211,6 +215,9 @@ const notice = ref('');
 const page = ref(1);
 const lastPage = ref(1);
 const showModal = ref(false);
+const saving = ref(false);
+const modalError = ref('');
+const editingExerciseName = ref('');
 const editingUuid = ref<string | null>(null);
 const editingFacilityName = ref('');
 const facilitySearch = ref('');
@@ -223,7 +230,7 @@ const filters = reactive({
 });
 
 const draft = reactive({
-  assessment_exercise_id: '',
+  assessment_exercise_ids: [] as string[],
   assignee_type: 'user' as AssignmentAssigneeType,
   assignee_id: '',
   facility_ids: [] as number[],
@@ -258,9 +265,16 @@ const exerciseFilterOptions = computed(() => [
 ]);
 
 const exerciseOptionsForSelect = computed(() => [
-  { label: 'Select exercise', value: '' },
-  ...options.exercises.map((exercise) => ({ label: `${exercise.name} (${exercise.code})`, value: String(exercise.id) })),
+  ...options.exercises.filter(exercise => !exercise.target_type || exercise.target_type === draft.target_type)
+    .map((exercise) => ({ label: `${exercise.name} (${exercise.code})`, value: String(exercise.id) })),
 ]);
+const plannedAssignmentCount = computed(() => draft.assessment_exercise_ids.length * (draft.target_type === 'facility' ? draft.facility_ids.length : draft.target_type === 'no_target' ? 1 : draft.target_ids.length));
+
+const updateExercises = (ids: string[]) => {
+  const defaultDueDate = (values: string[]) => values.length === 1 ? options.exercises.find(item => String(item.id) === values[0])?.ends_at?.slice(0, 10) || '' : '';
+  if (!draft.due_at || draft.due_at === defaultDueDate(draft.assessment_exercise_ids)) draft.due_at = defaultDueDate(ids);
+  draft.assessment_exercise_ids = ids;
+};
 
 const targetTypeOptions = computed(() => options.target_types.map((type) => ({ label: titleCase(type), value: type })));
 
@@ -313,26 +327,29 @@ const loadAssignments = async () => {
 };
 
 const resetDraft = () => {
+  const initial = options.exercises.find(exercise => String(exercise.id) === filters.exercise_id) ?? options.exercises[0];
   Object.assign(draft, {
-    assessment_exercise_id: options.exercises[0] ? String(options.exercises[0].id) : '',
+    assessment_exercise_ids: initial ? [String(initial.id)] : [],
     assignee_type: 'user',
     assignee_id: options.users[0] ? String(options.users[0].id) : '',
     facility_ids: [],
-    target_type: options.exercises[0]?.target_type || 'facility',
+    target_type: initial?.target_type || 'facility',
     target_ids: [],
     status: 'assigned',
     allow_duplicate_submission: false,
-    due_at: options.exercises[0]?.ends_at?.slice(0, 10) || '',
+    due_at: initial?.ends_at?.slice(0, 10) || '',
   });
   facilitySearch.value = '';
 };
 
 const openModal = (assignment?: AssessmentAssignment) => {
+  modalError.value = '';
   if (assignment) {
     editingUuid.value = assignment.uuid;
-    editingFacilityName.value = assignment.facility?.name || 'Selected facility';
+    editingExerciseName.value = assignment.exercise?.name || 'Selected exercise';
+    editingFacilityName.value = assignment.facility?.name || assignment.target?.name || (assignment.target_type === 'no_target' ? 'No target' : 'Selected target');
     Object.assign(draft, {
-      assessment_exercise_id: String(assignment.assessment_exercise_id),
+      assessment_exercise_ids: [String(assignment.assessment_exercise_id)],
       assignee_type: assignment.assignee_type,
       assignee_id: String(assignment.assignee_type === 'team' ? assignment.odk_team_id : assignment.odk_user_id),
       facility_ids: [assignment.reference_facility_id],
@@ -352,27 +369,32 @@ const openModal = (assignment?: AssessmentAssignment) => {
 };
 
 const closeModal = () => {
+  if (saving.value) return;
   showModal.value = false;
   editingUuid.value = null;
 };
 
 const saveAssignment = async () => {
-  if (!draft.assessment_exercise_id || !draft.assignee_id) {
-    notice.value = 'Exercise and assignee are required.';
+  if (saving.value) return;
+  modalError.value = '';
+  if (!draft.assessment_exercise_ids.length || !draft.assignee_id) {
+    modalError.value = 'Select at least one exercise and an assignee.';
     return;
   }
 
   if (!editingUuid.value && draft.target_type === 'facility' && draft.facility_ids.length === 0) {
-    notice.value = 'Select at least one facility.';
+    modalError.value = 'Select at least one facility.';
     return;
   }
 
   if (!editingUuid.value && draft.target_type !== 'facility' && draft.target_type !== 'no_target' && draft.target_ids.length === 0) {
-    notice.value = `Select at least one ${titleCase(draft.target_type).toLowerCase()} target.`;
+    modalError.value = `Select at least one ${titleCase(draft.target_type).toLowerCase()} target.`;
     return;
   }
 
+  saving.value = true;
   try {
+    let message = '';
     if (editingUuid.value) {
       await updateAssessmentAssignment(editingUuid.value, {
         assignee_type: draft.assignee_type,
@@ -381,10 +403,10 @@ const saveAssignment = async () => {
         allow_duplicate_submission: draft.allow_duplicate_submission,
         due_at: draft.due_at || null,
       });
-      notice.value = 'Assignment updated.';
+      message = 'Assignment updated.';
     } else {
       const created = await createAssessmentAssignments({
-        assessment_exercise_id: Number(draft.assessment_exercise_id),
+        assessment_exercise_ids: draft.assessment_exercise_ids.map(Number),
         assignee_type: draft.assignee_type,
         assignee_id: Number(draft.assignee_id),
         facility_ids: draft.facility_ids,
@@ -394,13 +416,17 @@ const saveAssignment = async () => {
         allow_duplicate_submission: draft.allow_duplicate_submission,
         due_at: draft.due_at || null,
       });
-      notice.value = `${created.length} assignment${created.length === 1 ? '' : 's'} created.`;
+      message = `${created.length} assignment${created.length === 1 ? '' : 's'} created.`;
     }
 
+    saving.value = false;
     closeModal();
     await loadAssignments();
+    notice.value = message;
   } catch (error) {
-    notice.value = error instanceof Error ? error.message : 'Unable to save assignment.';
+    modalError.value = error instanceof Error ? error.message : 'Unable to save assignment.';
+  } finally {
+    saving.value = false;
   }
 };
 
@@ -503,17 +529,13 @@ watch(() => draft.assignee_type, () => {
   draft.assignee_id = draft.assignee_type === 'team'
     ? options.teams[0] ? String(options.teams[0].id) : ''
     : options.users[0] ? String(options.users[0].id) : '';
-});
+}, { flush: 'sync' });
 
-watch(() => draft.assessment_exercise_id, () => {
-  const exercise = options.exercises.find((item) => String(item.id) === draft.assessment_exercise_id);
+watch(() => draft.target_type, () => {
   if (!editingUuid.value) {
-    draft.target_type = exercise?.target_type || 'facility';
     draft.facility_ids = [];
     draft.target_ids = [];
-  }
-  if (!editingUuid.value) {
-    draft.due_at = exercise?.ends_at?.slice(0, 10) || draft.due_at;
+    updateExercises(draft.assessment_exercise_ids.filter(id => exerciseOptionsForSelect.value.some(option => option.value === id)));
   }
 });
 

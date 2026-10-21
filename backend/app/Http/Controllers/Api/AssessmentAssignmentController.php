@@ -4,11 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\AssessmentAssignment;
 use App\Models\AssessmentExercise;
-use App\Models\OdkTeam;
 use App\Models\OdkTarget;
+use App\Models\OdkTeam;
 use App\Models\OdkUser;
 use App\Models\ReferenceFacility;
 use App\Support\OdkWorkspaceContext;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -73,7 +74,9 @@ class AssessmentAssignmentController
         $this->assertManager($request);
 
         $data = $request->validate([
-            'assessment_exercise_id' => ['required', 'integer', 'exists:assessment_exercises,id'],
+            'assessment_exercise_id' => ['required_without:assessment_exercise_ids', 'prohibits:assessment_exercise_ids', 'integer'],
+            'assessment_exercise_ids' => ['required_without:assessment_exercise_id', 'prohibits:assessment_exercise_id', 'array', 'min:1'],
+            'assessment_exercise_ids.*' => ['required', 'integer', 'distinct'],
             'assignee_type' => ['required', Rule::in([AssessmentAssignment::ASSIGNEE_USER, AssessmentAssignment::ASSIGNEE_TEAM])],
             'assignee_id' => ['required', 'integer'],
             'target_type' => ['nullable', Rule::in(OdkTarget::types())],
@@ -86,50 +89,63 @@ class AssessmentAssignmentController
             'due_at' => ['nullable', 'date'],
         ]);
 
-        $exercise = AssessmentExercise::findOrFail($data['assessment_exercise_id']);
+        $exerciseIds = $data['assessment_exercise_ids'] ?? [$data['assessment_exercise_id']];
         $this->assertAssigneeExists($data['assignee_type'], (int) $data['assignee_id']);
         $allowDuplicate = (bool) ($data['allow_duplicate_submission'] ?? false);
-        $targetType = $data['target_type'] ?? $exercise->target_type ?? OdkTarget::TYPE_FACILITY;
-        $this->assertTargetTypeMatchesExercise($exercise, $targetType);
         $facilityIds = array_values(array_unique($data['facility_ids'] ?? []));
         $targetIds = array_values(array_unique($data['target_ids'] ?? []));
 
-        if ($targetType === OdkTarget::TYPE_FACILITY) {
-            if ($facilityIds === []) {
-                throw ValidationException::withMessages(['facility_ids' => ['Select at least one facility.']]);
+        $assignments = DB::transaction(function () use ($data, $exerciseIds, $facilityIds, $targetIds, $allowDuplicate) {
+            // Lock in a stable order so competing batches cannot bypass duplicate checks.
+            $exercises = AssessmentExercise::query()->whereIn('id', $exerciseIds)->orderBy('id')->lockForUpdate()->get();
+            if ($exercises->count() !== count($exerciseIds)) {
+                throw ValidationException::withMessages(['assessment_exercise_ids' => ['Select exercises from this workspace.']]);
             }
-            $targets = collect($facilityIds)->map(fn (int $id): array => ['facility_id' => $id, 'target_id' => null]);
-        } elseif ($targetType === OdkTarget::TYPE_NONE) {
-            $targets = collect([['facility_id' => null, 'target_id' => null]]);
-        } else {
-            if ($targetIds === []) {
-                throw ValidationException::withMessages(['target_ids' => ['Select at least one target.']]);
+            $targetType = $data['target_type'] ?? $exercises->first()->target_type ?? OdkTarget::TYPE_FACILITY;
+            foreach ($exercises as $exercise) {
+                abort_unless(in_array($exercise->status, [AssessmentExercise::STATUS_DRAFT, AssessmentExercise::STATUS_SCHEDULED, AssessmentExercise::STATUS_ACTIVE], true), 422, 'Only open exercises can receive assignments.');
+                $this->assertTargetTypeMatchesExercise($exercise, $targetType);
             }
-            $validTargetCount = OdkTarget::query()->where('type', $targetType)->where('active', true)->whereIn('id', $targetIds)->count();
-            abort_unless($validTargetCount === count($targetIds), 422, 'All selected targets must belong to this workspace and target type.');
-            $targets = collect($targetIds)->map(fn (int $id): array => ['facility_id' => null, 'target_id' => $id]);
-        }
 
-        if (!$allowDuplicate && $targetType === OdkTarget::TYPE_FACILITY) {
-            $this->assertNoDuplicateAssignments($exercise->id, $facilityIds);
-        }
+            if ($targetType === OdkTarget::TYPE_FACILITY) {
+                if ($facilityIds === []) {
+                    throw ValidationException::withMessages(['facility_ids' => ['Select at least one facility.']]);
+                }
+                $targets = collect($facilityIds)->map(fn (int $id): array => ['facility_id' => $id, 'target_id' => null]);
+            } elseif ($targetType === OdkTarget::TYPE_NONE) {
+                $targets = collect([['facility_id' => null, 'target_id' => null]]);
+            } else {
+                if ($targetIds === []) {
+                    throw ValidationException::withMessages(['target_ids' => ['Select at least one target.']]);
+                }
+                $validTargetCount = OdkTarget::query()->where('type', $targetType)->where('active', true)->whereIn('id', $targetIds)->count();
+                abort_unless($validTargetCount === count($targetIds), 422, 'All selected targets must belong to this workspace and target type.');
+                $targets = collect($targetIds)->map(fn (int $id): array => ['facility_id' => null, 'target_id' => $id]);
+            }
 
-        $assignments = DB::transaction(function () use ($data, $exercise, $targets, $targetType, $allowDuplicate) {
-            return $targets->map(function (array $target) use ($data, $exercise, $targetType, $allowDuplicate): AssessmentAssignment {
-                return AssessmentAssignment::create([
-                    'uuid' => (string) Str::uuid(),
-                    'assessment_exercise_id' => $exercise->id,
-                    'reference_facility_id' => $target['facility_id'],
-                    'target_type' => $targetType,
-                    'odk_target_id' => $target['target_id'],
-                    'assignee_type' => $data['assignee_type'],
-                    'odk_user_id' => $data['assignee_type'] === AssessmentAssignment::ASSIGNEE_USER ? $data['assignee_id'] : null,
-                    'odk_team_id' => $data['assignee_type'] === AssessmentAssignment::ASSIGNEE_TEAM ? $data['assignee_id'] : null,
-                    'status' => $data['status'] ?? AssessmentAssignment::STATUS_ASSIGNED,
-                    'allow_duplicate_submission' => $allowDuplicate,
-                    'assigned_at' => now(),
-                    'due_at' => $data['due_at'] ?? $exercise->ends_at,
-                ]);
+            if (! $allowDuplicate && $targetType === OdkTarget::TYPE_FACILITY) {
+                foreach ($exercises as $exercise) {
+                    $this->assertNoDuplicateAssignments($exercise->id, $facilityIds, $exercise->name);
+                }
+            }
+
+            return $exercises->flatMap(function (AssessmentExercise $exercise) use ($data, $targets, $targetType, $allowDuplicate) {
+                return $targets->map(function (array $target) use ($data, $exercise, $targetType, $allowDuplicate): AssessmentAssignment {
+                    return AssessmentAssignment::create([
+                        'uuid' => (string) Str::uuid(),
+                        'assessment_exercise_id' => $exercise->id,
+                        'reference_facility_id' => $target['facility_id'],
+                        'target_type' => $targetType,
+                        'odk_target_id' => $target['target_id'],
+                        'assignee_type' => $data['assignee_type'],
+                        'odk_user_id' => $data['assignee_type'] === AssessmentAssignment::ASSIGNEE_USER ? $data['assignee_id'] : null,
+                        'odk_team_id' => $data['assignee_type'] === AssessmentAssignment::ASSIGNEE_TEAM ? $data['assignee_id'] : null,
+                        'status' => $data['status'] ?? AssessmentAssignment::STATUS_ASSIGNED,
+                        'allow_duplicate_submission' => $allowDuplicate,
+                        'assigned_at' => now(),
+                        'due_at' => $data['due_at'] ?? $exercise->ends_at,
+                    ]);
+                });
             });
         });
 
@@ -229,10 +245,10 @@ class AssessmentAssignmentController
     private function assertAssigneeExists(string $type, int $id): void
     {
         $exists = $type === AssessmentAssignment::ASSIGNEE_USER
-            ? OdkUser::whereKey($id)->where('status', OdkUser::STATUS_ACTIVE)->exists()
+            ? $this->workspaceUsers()->whereKey($id)->exists()
             : OdkTeam::whereKey($id)->where('status', OdkTeam::STATUS_ACTIVE)->exists();
 
-        if (!$exists) {
+        if (! $exists) {
             throw ValidationException::withMessages([
                 'assignee_id' => ['Select an active '.($type === AssessmentAssignment::ASSIGNEE_USER ? 'user' : 'team').'.'],
             ]);
@@ -248,7 +264,7 @@ class AssessmentAssignmentController
         );
     }
 
-    private function assertNoDuplicateAssignments(int $exerciseId, array $facilityIds): void
+    private function assertNoDuplicateAssignments(int $exerciseId, array $facilityIds, string $exerciseName): void
     {
         $duplicates = AssessmentAssignment::query()
             ->with('facility:id,name')
@@ -259,7 +275,7 @@ class AssessmentAssignmentController
 
         if ($duplicates->isNotEmpty()) {
             throw ValidationException::withMessages([
-                'facility_ids' => ['Already assigned for this exercise: '.$duplicates->pluck('facility.name')->filter()->join(', ')],
+                'facility_ids' => ['Already assigned for '.$exerciseName.': '.$duplicates->pluck('facility.name')->filter()->join(', ')],
             ]);
         }
     }
@@ -279,9 +295,8 @@ class AssessmentAssignmentController
             'exercises' => AssessmentExercise::query()
                 ->whereIn('status', [AssessmentExercise::STATUS_DRAFT, AssessmentExercise::STATUS_SCHEDULED, AssessmentExercise::STATUS_ACTIVE])
                 ->orderByDesc('starts_at')
-                ->get(['id', 'uuid', 'name', 'code', 'status', 'starts_at', 'ends_at']),
-            'users' => OdkUser::query()
-                ->where('status', OdkUser::STATUS_ACTIVE)
+                ->get(['id', 'uuid', 'name', 'code', 'status', 'starts_at', 'ends_at', 'target_type']),
+            'users' => $this->workspaceUsers()
                 ->orderBy('name')
                 ->get(['id', 'uuid', 'name', 'email']),
             'teams' => OdkTeam::query()
@@ -309,6 +324,15 @@ class AssessmentAssignmentController
             AssessmentAssignment::STATUS_CANCELLED,
             AssessmentAssignment::STATUS_EXPIRED,
         ];
+    }
+
+    private function workspaceUsers(): Builder
+    {
+        return OdkUser::query()
+            ->where('status', OdkUser::STATUS_ACTIVE)
+            ->whereHas('workspaces', fn ($query) => $query
+                ->where('odk_workspaces.id', app(OdkWorkspaceContext::class)->id())
+                ->where('odk_workspace_members.status', 'active'));
     }
 
     private function loads(): array
