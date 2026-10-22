@@ -43,6 +43,9 @@ const writes = [];
 const updates = [];
 let assignments = [];
 let failNext = false;
+const queries = [];
+let holdUserRequest = false;
+let releaseUserRequest;
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 page.setDefaultTimeout(10000);
@@ -55,7 +58,23 @@ await page.route('**/api/**', async route => {
   const send = data => route.fulfill({ json: { success: true, data } });
   if (path === '/api/auth/me') return send({ ...users[0], role: { key: 'admin', name: 'Admin' }, workspaces: [{ id: 1, name: 'Assignment workspace', pivot: { role_key: 'owner' } }] });
   if (path === '/api/auth/workspaces') return send({ current: { id: 1, name: 'Assignment workspace' }, items: [{ id: 1, name: 'Assignment workspace' }] });
-  if (path === '/api/assignments' && request.method() === 'GET') return send({ assignments: { data: assignments, last_page: 1 }, options, stats: { total: assignments.length, assigned: assignments.length, in_progress: 0, submitted: 0, reviewed: 0 } });
+  if (path === '/api/assignments' && request.method() === 'GET') {
+    const query = new URL(request.url()).searchParams;
+    queries.push(Object.fromEntries(query));
+    const filtered = assignments.filter(item => (
+      (!query.get('exercise_id') || String(item.assessment_exercise_id) === query.get('exercise_id'))
+      && (!query.get('assignee_type') || item.assignee_type === query.get('assignee_type'))
+      && (!query.get('assignee_id') || String(item.assignee_type === 'team' ? item.odk_team_id : item.odk_user_id) === query.get('assignee_id'))
+      && (!query.get('status') || item.status === query.get('status'))
+    ));
+    const currentPage = Number(query.get('page') || 1);
+    const perPage = Number(query.get('per_page') || 20);
+    if (holdUserRequest && query.get('assignee_type') === 'user' && query.get('assignee_id') === '1') {
+      holdUserRequest = false;
+      await new Promise(done => { releaseUserRequest = done; });
+    }
+    return send({ assignments: { data: filtered.slice((currentPage - 1) * perPage, currentPage * perPage), last_page: Math.max(1, Math.ceil(filtered.length / perPage)) }, options, stats: { total: assignments.length, assigned: assignments.length, in_progress: 0, submitted: 0, reviewed: 0 } });
+  }
   if (path === '/api/assignments' && request.method() === 'POST') {
     const body = request.postDataJSON();
     writes.push(body);
@@ -171,8 +190,72 @@ try {
   assert.deepEqual(writes.at(-1).assessment_exercise_ids, [3]);
   assert.deepEqual(writes.at(-1).target_ids, [20]);
   assert.deepEqual(writes.at(-1).facility_ids, []);
+
+  // Exercise and individual assignee filters are independent of assignment creation.
+  users.push({ id: 2, uuid: 'user-2', name: 'Second assessor', email: 'second@example.com' });
+  const row = (id, exerciseId, type, assigneeId) => ({
+    id, uuid: 'filter-' + id, assessment_exercise_id: exerciseId, exercise: exercises.find(item => item.id === exerciseId),
+    facility: { name: 'Filter facility ' + id }, reference_facility_id: id, target_type: 'facility',
+    assignee_type: type, odk_user_id: type === 'user' ? assigneeId : null, odk_team_id: type === 'team' ? assigneeId : null,
+    user: users.find(item => item.id === assigneeId), team: teams.find(item => item.id === assigneeId),
+    status: 'assigned', allow_duplicate_submission: false, submissions_count: 0,
+  });
+  assignments = [
+    ...Array.from({ length: 21 }, (_, index) => row(index + 100, 1, 'user', 1)),
+    row(200, 1, 'user', 2), row(201, 2, 'user', 1),
+    row(202, 1, 'team', 2), row(203, 1, 'team', 3), row(204, 2, 'team', 3),
+  ];
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.getByText('Page 1 of 2', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByText('Page 2 of 2', { exact: true }).waitFor();
+  const toolbar = page.locator('.qds-toolbar');
+  const typeFilter = toolbar.getByRole('combobox', { name: /^Assignee/ });
+  await typeFilter.selectOption('user');
+  await page.getByText('Page 1 of 2', { exact: true }).waitFor();
+  await toolbar.getByRole('combobox', { name: /^Exercise/ }).selectOption('1');
+  holdUserRequest = true;
+  const held = page.waitForRequest(request => new URL(request.url()).searchParams.get('assignee_id') === '1');
+  await toolbar.getByRole('combobox', { name: /^User/ }).selectOption('1');
+  await held;
+  await toolbar.getByRole('combobox', { name: /^User/ }).selectOption('2');
+  await page.locator('.assignments-table .qds-table__row').filter({ hasText: 'Second assessor' }).waitFor();
+  releaseUserRequest();
+  await page.waitForLoadState('networkidle');
+  assert.equal(await page.locator('.assignments-table .qds-table__row').count(), 1);
+  assert.equal(await toolbar.getByRole('combobox', { name: /^Exercise/ }).inputValue(), '1');
+  assert.equal(queries.at(-1).assignee_id, '2');
+  assert.equal(queries.at(-1).page, '1');
+  assert.equal(queries.at(-1).exercise_id, '1');
+  await page.screenshot({ path: output + '/filters-desktop.png', fullPage: true, animations: 'disabled' });
+
+  await typeFilter.selectOption('team');
+  assert.equal(await toolbar.getByRole('combobox', { name: /^Team/ }).inputValue(), '');
+  await toolbar.getByRole('combobox', { name: /^Team/ }).selectOption('3');
+  await page.locator('.assignments-table .qds-table__row').filter({ hasText: 'Second team' }).waitFor();
+  assert.equal(await page.locator('.assignments-table .qds-table__row').count(), 1);
+  assert.equal(queries.at(-1).assignee_type, 'team');
+  assert.equal(queries.at(-1).assignee_id, '3');
+  assert.equal(queries.at(-1).exercise_id, '1');
+  await toolbar.getByRole('combobox', { name: /^Team/ }).selectOption('');
+  await page.waitForFunction(() => document.querySelectorAll('.assignments-table .qds-table__row').length === 2);
+  await typeFilter.selectOption('');
+  await page.getByText('Page 1 of 2', { exact: true }).waitFor();
+  assert.equal(Object.hasOwn(queries.at(-1), 'assignee_id'), false);
+  assert.equal(Object.hasOwn(queries.at(-1), 'assignee_type'), false);
+  await typeFilter.selectOption('team');
+  await toolbar.getByRole('combobox', { name: /^Team/ }).selectOption('3');
+  await page.locator('.assignments-table .qds-table__row').filter({ hasText: 'Second team' }).waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await toolbar.scrollIntoViewIfNeeded();
+  for (const field of await toolbar.getByRole('combobox').all()) {
+    const box = await field.boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= 390, 'Assignment filter overflows mobile viewport');
+  }
+  await page.screenshot({ path: output + '/filters-mobile.png', animations: 'disabled' });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ result: 'passed', batchSize: 4, checks: ['search', 'select all', 'due dates', 'target preservation', 'edit', 'errors', 'workspace target types', 'desktop', 'mobile'], screenshots: output }));
+  console.log(JSON.stringify({ result: 'passed', batchSize: 4, checks: ['search', 'select all', 'due dates', 'target preservation', 'edit', 'errors', 'workspace target types', 'assignee filters', 'pagination reset', 'stale responses', 'desktop', 'mobile'], screenshots: output }));
 } finally {
   await browser.close();
   await new Promise(done => server.close(done));

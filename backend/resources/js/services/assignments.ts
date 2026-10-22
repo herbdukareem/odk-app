@@ -144,6 +144,7 @@ export type AssignmentQuery = {
   status?: string;
   exercise_id?: string;
   assignee_type?: string;
+  assignee_id?: string;
   page?: number;
   per_page?: number;
 };

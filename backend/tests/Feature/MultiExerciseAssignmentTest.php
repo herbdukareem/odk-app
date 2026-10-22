@@ -8,6 +8,7 @@ use App\Models\AssessmentForm;
 use App\Models\AssessmentFormVersion;
 use App\Models\OdkRole;
 use App\Models\OdkTarget;
+use App\Models\OdkTeam;
 use App\Models\OdkUser;
 use App\Models\OdkWorkspace;
 use App\Models\ReferenceFacility;
@@ -196,6 +197,68 @@ class MultiExerciseAssignmentTest extends TestCase
             'assessment_form_id' => $this->version->assessment_form_id, 'assessment_form_version_id' => $this->version->id,
             'status' => 'active', 'target_type' => 'facility',
         ]);
+    }
+
+    public function test_specific_user_and_team_filters_combine_with_exercise_status_search_and_pagination(): void
+    {
+        $this->postJson('/api/assignments', $this->payload())->assertCreated();
+        $colleague = OdkUser::create([
+            'uuid' => (string) Str::uuid(), 'odk_role_id' => $this->owner->odk_role_id,
+            'name' => 'Second assessor', 'email' => 'second@example.com', 'status' => 'active',
+        ]);
+        $this->workspace->users()->attach($colleague->id, ['role_key' => 'member', 'status' => 'active', 'joined_at' => now()]);
+        $team = OdkTeam::create(['uuid' => (string) Str::uuid(), 'name' => 'Assessment team', 'status' => 'active']);
+        foreach ([['user', $colleague->id], ['team', $team->id]] as [$type, $id]) {
+            $this->postJson('/api/assignments', [...$this->payload(), 'assignee_type' => $type, 'assignee_id' => $id, 'allow_duplicate_submission' => true])
+                ->assertCreated();
+        }
+
+        foreach ([['user', $this->owner->id], ['user', $colleague->id], ['team', $team->id]] as [$type, $id]) {
+            $query = ['exercise_id' => $this->exercises[0]->id, 'assignee_type' => $type, 'assignee_id' => $id, 'per_page' => 1];
+            $response = $this->getJson('/api/assignments?'.http_build_query($query))
+                ->assertOk()->assertJsonPath('data.assignments.total', 2)->assertJsonCount(1, 'data.assignments.data')
+                ->assertJsonPath('data.assignments.data.0.assignee_type', $type)
+                ->assertJsonPath('data.assignments.data.0.assessment_exercise_id', $this->exercises[0]->id);
+            $column = $type === 'team' ? 'odk_team_id' : 'odk_user_id';
+            $response->assertJsonPath('data.assignments.data.0.'.$column, $id);
+            $this->getJson('/api/assignments?'.http_build_query([...$query, 'page' => 2]))
+                ->assertOk()->assertJsonPath('data.assignments.current_page', 2)->assertJsonCount(1, 'data.assignments.data');
+            $this->getJson('/api/assignments?'.http_build_query([...$query, 'q' => 'North', 'status' => 'assigned']))
+                ->assertOk()->assertJsonPath('data.assignments.total', 1)
+                ->assertJsonPath('data.assignments.data.0.reference_facility_id', $this->facilities[0]->id);
+            $this->getJson('/api/assignments?'.http_build_query([...$query, 'status' => 'reviewed']))
+                ->assertOk()->assertJsonPath('data.assignments.total', 0);
+        }
+        $this->getJson('/api/assignments?assignee_type=user')->assertOk()->assertJsonPath('data.assignments.total', 8);
+        $this->getJson('/api/assignments')->assertOk()->assertJsonPath('data.assignments.total', 12);
+    }
+
+    public function test_assignee_filters_never_return_assignments_from_another_workspace(): void
+    {
+        $this->postJson('/api/assignments', $this->payload())->assertCreated();
+        $other = OdkWorkspace::create([
+            'uuid' => (string) Str::uuid(), 'slug' => 'foreign-filter', 'name' => 'Other workspace',
+            'type' => OdkWorkspace::TYPE_ORGANIZATION, 'status' => 'active', 'owner_user_id' => $this->owner->id,
+        ]);
+        $foreign = AssessmentAssignment::first();
+        $foreign->update(['workspace_id' => $other->id]);
+        $response = $this->getJson('/api/assignments?assignee_type=user&assignee_id='.$this->owner->id)
+            ->assertOk()->assertJsonPath('data.assignments.total', 3);
+        $this->assertNotContains($foreign->uuid, array_column($response->json('data.assignments.data'), 'uuid'));
+        $this->getJson('/api/assignments?assignee_type=user&assignee_id=99999')
+            ->assertOk()->assertJsonPath('data.assignments.total', 0);
+    }
+
+    public function test_invalid_assignee_filter_parameters_are_rejected(): void
+    {
+        foreach ([
+            ['assignee_id' => $this->owner->id],
+            ['assignee_type' => 'unknown', 'assignee_id' => $this->owner->id],
+            ['assignee_type' => 'user', 'assignee_id' => 'invalid'],
+            ['assignee_type' => 'team', 'assignee_id' => -1],
+        ] as $query) {
+            $this->getJson('/api/assignments?'.http_build_query($query))->assertUnprocessable();
+        }
     }
 
     private function payload(): array

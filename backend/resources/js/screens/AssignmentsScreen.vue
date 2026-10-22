@@ -32,6 +32,13 @@
       <QdsField v-model="filters.exercise_id" label="Exercise" :options="exerciseFilterOptions" />
       <QdsField v-model="filters.status" label="Status" :options="statusFilterOptions" />
       <QdsField v-model="filters.assignee_type" label="Assignee" :options="assigneeFilterOptions" />
+      <QdsField
+        v-if="filters.assignee_type"
+        v-model="filters.assignee_id"
+        class="assignment-assignee-filter"
+        :label="filters.assignee_type === 'team' ? 'Team' : 'User'"
+        :options="specificAssigneeFilterOptions"
+      />
       <QdsButton variant="secondary" @click="loadAssignments">Refresh</QdsButton>
     </div>
 
@@ -227,7 +234,9 @@ const filters = reactive({
   status: '',
   exercise_id: props.initialExerciseId ? String(props.initialExerciseId) : '',
   assignee_type: '',
+  assignee_id: '',
 });
+let assignmentRequestId = 0;
 
 const draft = reactive({
   assessment_exercise_ids: [] as string[],
@@ -258,6 +267,11 @@ const assigneeFilterOptions = [
   { label: 'Teams', value: 'team' },
 ];
 const assigneeTypeOptions = assigneeFilterOptions.filter((option) => option.value !== '');
+const specificAssigneeFilterOptions = computed(() => [
+  { label: filters.assignee_type === 'team' ? 'All teams' : 'All users', value: '' },
+  ...(filters.assignee_type === 'team' ? options.teams : options.users)
+    .map(item => ({ label: item.name, value: String(item.id) })),
+]);
 
 const exerciseFilterOptions = computed(() => [
   { label: 'All exercises', value: '' },
@@ -306,6 +320,7 @@ const filteredTargets = computed(() => {
 });
 
 const loadAssignments = async () => {
+  const requestId = ++assignmentRequestId;
   loading.value = true;
   notice.value = '';
 
@@ -315,14 +330,16 @@ const loadAssignments = async () => {
       page: page.value,
       per_page: 20,
     });
+    if (requestId !== assignmentRequestId) return;
     assignments.value = payload.assignments.data;
     lastPage.value = payload.assignments.last_page || 1;
     Object.assign(options, payload.options);
     Object.assign(stats, payload.stats);
   } catch (error) {
+    if (requestId !== assignmentRequestId) return;
     notice.value = error instanceof Error ? error.message : 'Unable to load assignments.';
   } finally {
-    loading.value = false;
+    if (requestId === assignmentRequestId) loading.value = false;
   }
 };
 
@@ -509,9 +526,13 @@ const deleteAssignment = async (assignment: AssessmentAssignment) => {
   }
 };
 
+watch(() => filters.assignee_type, () => {
+  filters.assignee_id = '';
+}, { flush: 'sync' });
+
 watch(() => ({ ...filters }), () => {
-  page.value = 1;
-  void loadAssignments();
+  if (page.value !== 1) page.value = 1;
+  else void loadAssignments();
 });
 
 watch(() => props.initialExerciseId, (exerciseId) => {
@@ -541,3 +562,15 @@ watch(() => draft.target_type, () => {
 
 onMounted(loadAssignments);
 </script>
+
+<style scoped>
+.assignment-assignee-filter {
+  width: min(100%, 260px);
+  min-width: 0;
+}
+@media (max-width: 820px) {
+  .assignment-assignee-filter {
+    width: 100%;
+  }
+}
+</style>

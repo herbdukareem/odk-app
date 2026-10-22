@@ -21,6 +21,11 @@ class AssessmentAssignmentController
 {
     public function index(Request $request): JsonResponse
     {
+        $request->validate([
+            'assignee_type' => ['required_with:assignee_id', 'nullable', Rule::in([AssessmentAssignment::ASSIGNEE_USER, AssessmentAssignment::ASSIGNEE_TEAM])],
+            'assignee_id' => ['nullable', 'integer', 'min:1'],
+        ]);
+
         $assignments = AssessmentAssignment::query()
             ->with([
                 'exercise:id,uuid,name,code,status,starts_at,ends_at',
@@ -35,6 +40,10 @@ class AssessmentAssignmentController
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
             ->when($request->filled('exercise_id'), fn ($query) => $query->where('assessment_exercise_id', $request->integer('exercise_id')))
             ->when($request->filled('assignee_type'), fn ($query) => $query->where('assignee_type', $request->string('assignee_type')))
+            ->when($request->filled('assignee_id'), fn ($query) => $query->where(
+                $request->input('assignee_type') === AssessmentAssignment::ASSIGNEE_TEAM ? 'odk_team_id' : 'odk_user_id',
+                $request->integer('assignee_id')
+            ))
             ->when($request->filled('q'), function ($query) use ($request): void {
                 $search = trim((string) $request->input('q'));
                 $query->where(function ($searchQuery) use ($search): void {
