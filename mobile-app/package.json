@@ -8,7 +8,8 @@
     "android": "expo start --android --port 8093",
     "ios": "expo start --ios --port 8093",
     "web": "expo start --web --port 8093",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",

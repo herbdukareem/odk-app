@@ -26,6 +26,13 @@ import {
   View,
 } from 'react-native';
 import DataKitLogo from './components/DataKitLogo';
+import {
+  SyncUploadError,
+  uploadEvidenceWithRetry,
+  uploadPendingEvidence,
+  type AttachmentUploadStatus,
+  type EvidenceUploadProgress,
+} from './services/evidenceUploads';
 
 type Screen = 'Home' | 'Forms' | 'Targets' | 'Assessment' | 'Review' | 'Sync' | 'Assessments';
 
@@ -256,11 +263,7 @@ type QueueItem = {
   lastError?: string;
   lastAttemptAt?: string;
   remoteUuid?: string;
-  attachmentStatus?: Record<string, {
-    status: 'pending' | 'uploaded' | 'failed';
-    error?: string;
-    uploadedAt?: string;
-  }>;
+  attachmentStatus?: AttachmentUploadStatus;
   queuedAt: string;
 };
 
@@ -390,8 +393,8 @@ const API_BASE_URL = String(
   Constants.expoConfig?.extra?.apiBaseUrl ?? 'http://odk-web.test/api'
 ).replace(/\/$/, '');
 const CURRENT_APP_ID = String(Constants.expoConfig?.android?.package ?? 'ng.gov.nicare.qa');
-const CURRENT_APP_VERSION = String(Constants.expoConfig?.version ?? '0.1.2');
-const CURRENT_APP_VERSION_CODE = Number(Constants.expoConfig?.android?.versionCode ?? 3);
+const CURRENT_APP_VERSION = String(Constants.expoConfig?.version ?? '0.1.3');
+const CURRENT_APP_VERSION_CODE = Number(Constants.expoConfig?.android?.versionCode ?? 4);
 const REQUEST_TIMEOUT_MS = 15000;
 
 const STORAGE_KEYS = {
@@ -489,6 +492,7 @@ export default function App() {
   const [online, setOnline] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const syncInFlight = useRef(false);
   const [lastMessage, setLastMessage] = useState('Ready for offline use.');
   const [appUpdate, setAppUpdate] = useState<MobileAppUpdate | null>(null);
   const [appUpdateDownloading, setAppUpdateDownloading] = useState(false);
@@ -1139,7 +1143,7 @@ export default function App() {
   }
 
   async function syncQueue(itemIds?: string[]) {
-    if (syncing) {
+    if (syncInFlight.current) {
       return;
     }
 
@@ -1153,82 +1157,95 @@ export default function App() {
       return;
     }
 
+    syncInFlight.current = true;
     setSyncing(true);
     let workingQueue = queue;
-    const synced: HistoryItem[] = [];
-    const selectedIds = itemIds ? new Set(itemIds) : null;
+    try {
+      const synced: HistoryItem[] = [];
+      const selectedIds = itemIds ? new Set(itemIds) : null;
 
-    for (const item of queue) {
-      if (selectedIds && !selectedIds.has(item.id)) {
-        continue;
-      }
+      for (const item of queue) {
+        if (selectedIds && !selectedIds.has(item.id)) {
+          continue;
+        }
 
-      if (item.status === 'syncing') {
-        continue;
-      }
+        if (item.status === 'syncing') {
+          continue;
+        }
 
-      const attemptAt = new Date().toISOString();
-      workingQueue = workingQueue.map((candidate) =>
-        candidate.id === item.id
-          ? {
-              ...candidate,
-              status: 'syncing',
-              attempts: candidate.attempts + 1,
-              lastAttemptAt: attemptAt,
-              lastError: undefined,
-              attachmentStatus: candidate.attachmentStatus ?? initialAttachmentStatus(candidate.draft),
-            }
-          : candidate
-      );
-      setQueue(workingQueue);
-      await saveJson(STORAGE_KEYS.queue, workingQueue);
-
-      try {
-        const currentItem = workingQueue.find((candidate) => candidate.id === item.id) ?? item;
-        const response = await submitDraft(currentItem.draft, currentItem.remoteUuid, currentItem.attachmentStatus);
-        synced.push({
-          id: item.id,
-          assessmentId: item.draft.assessmentId,
-          facilityName: item.draft.facility.name,
-          syncedAt: new Date().toISOString(),
-          remoteUuid: response.uuid,
-          attachmentsUploaded: response.attachmentsUploaded,
-        });
-        workingQueue = workingQueue.filter((candidate) => candidate.id !== item.id);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Sync failed.';
-        const uploadError = error instanceof SyncUploadError ? error : null;
+        const attemptAt = new Date().toISOString();
         workingQueue = workingQueue.map((candidate) =>
           candidate.id === item.id
             ? {
                 ...candidate,
-                status: 'failed',
-                lastError: message,
-                remoteUuid: uploadError?.remoteUuid ?? candidate.remoteUuid,
-                attachmentStatus: uploadError?.attachmentStatus ?? candidate.attachmentStatus,
+                status: 'syncing',
+                attempts: candidate.attempts + 1,
+                lastAttemptAt: attemptAt,
+                lastError: undefined,
+                attachmentStatus: candidate.attachmentStatus ?? initialAttachmentStatus(candidate.draft),
               }
             : candidate
         );
+        setQueue(workingQueue);
+        await saveJson(STORAGE_KEYS.queue, workingQueue);
+
+        try {
+          const currentItem = workingQueue.find((candidate) => candidate.id === item.id) ?? item;
+          const response = await submitDraft(currentItem.draft, currentItem.remoteUuid, currentItem.attachmentStatus, async (progress) => {
+            workingQueue = workingQueue.map((candidate) => candidate.id === item.id ? { ...candidate, ...progress } : candidate);
+            await saveJson(STORAGE_KEYS.queue, workingQueue);
+            setQueue(workingQueue);
+          });
+          synced.push({
+            id: item.id,
+            assessmentId: item.draft.assessmentId,
+            facilityName: item.draft.facility.name,
+            syncedAt: new Date().toISOString(),
+            remoteUuid: response.uuid,
+            attachmentsUploaded: response.attachmentsUploaded,
+          });
+          workingQueue = workingQueue.filter((candidate) => candidate.id !== item.id);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Sync failed.';
+          const uploadError = error instanceof SyncUploadError ? error : null;
+          workingQueue = workingQueue.map((candidate) =>
+            candidate.id === item.id
+              ? {
+                  ...candidate,
+                  status: 'failed',
+                  lastError: message,
+                  remoteUuid: uploadError?.remoteUuid ?? candidate.remoteUuid,
+                  attachmentStatus: uploadError?.attachmentStatus ?? candidate.attachmentStatus,
+                }
+              : candidate
+          );
+        }
+
+        setQueue(workingQueue);
+        await saveJson(STORAGE_KEYS.queue, workingQueue);
       }
 
-      setQueue(workingQueue);
-      await saveJson(STORAGE_KEYS.queue, workingQueue);
-    }
+      if (synced.length > 0) {
+        const nextHistory = [...synced, ...history];
+        setHistory(nextHistory);
+        await saveJson(STORAGE_KEYS.history, nextHistory);
+      }
 
-    if (synced.length > 0) {
-      const nextHistory = [...synced, ...history];
-      setHistory(nextHistory);
-      await saveJson(STORAGE_KEYS.history, nextHistory);
+      setLastMessage(
+        synced.length > 0
+          ? workingQueue.length > 0
+            ? `Synced ${synced.length} assessment(s). ${workingQueue.length} still need attention.`
+            : 'All pending assessments and evidence uploaded successfully.'
+          : 'No uploads completed. Check the failed items and retry.'
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save upload progress. Retry syncing.';
+      setQueue(workingQueue.map((item) => item.status === 'syncing' ? { ...item, status: 'failed', lastError: message } : item));
+      setLastMessage(message);
+    } finally {
+      syncInFlight.current = false;
+      setSyncing(false);
     }
-
-    setLastMessage(
-      synced.length > 0
-        ? workingQueue.length > 0
-          ? `Synced ${synced.length} assessment(s). ${workingQueue.length} still need attention.`
-          : 'All pending assessments and evidence uploaded successfully.'
-        : 'No uploads completed. Check the failed items and retry.'
-    );
-    setSyncing(false);
   }
 
   async function retryQueueItem(itemId: string) {
@@ -1237,8 +1254,9 @@ export default function App() {
 
   async function submitDraft(
     draft: DraftAssessment,
-    existingRemoteUuid?: string,
-    previousAttachmentStatus?: QueueItem['attachmentStatus']
+    existingRemoteUuid: string | undefined,
+    previousAttachmentStatus: QueueItem['attachmentStatus'],
+    checkpoint: (progress: EvidenceUploadProgress) => Promise<void>
   ): Promise<{ uuid?: string; attachmentsUploaded: number }> {
     const draftForm = draft.formSchema ?? formForDraft(draft, forms.length > 0 ? forms : [emptyFormSchema]) ?? emptyFormSchema;
     const localValidation = validateDraft(draftForm, draft);
@@ -1305,34 +1323,13 @@ export default function App() {
       throw new Error('Submission upload did not return a valid remote UUID.');
     }
 
-    const attachmentStatus = {
-      ...initialAttachmentStatus({ ...draft, attachments: submissionAttachments }),
-      ...(previousAttachmentStatus ?? {}),
-    };
-    let attachmentsUploaded = countUploadedAttachments(attachmentStatus);
-    if (uuid) {
-      for (const attachment of submissionAttachments) {
-        if (attachmentStatus[attachment.id]?.status === 'uploaded') {
-          continue;
-        }
-
-        try {
-          await uploadAttachment(uuid, attachment);
-          attachmentsUploaded += 1;
-          attachmentStatus[attachment.id] = {
-            status: 'uploaded',
-            uploadedAt: new Date().toISOString(),
-          };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Evidence upload failed.';
-          attachmentStatus[attachment.id] = {
-            status: 'failed',
-            error: message,
-          };
-          throw new SyncUploadError('Submission saved, but an evidence upload failed.', uuid, attachmentStatus);
-        }
-      }
-    }
+    const attachmentsUploaded = await uploadPendingEvidence({
+      remoteUuid: uuid,
+      attachments: submissionAttachments,
+      previousStatus: previousAttachmentStatus,
+      upload: (attachment) => uploadAttachment(uuid, attachment),
+      checkpoint,
+    });
 
     return { uuid, attachmentsUploaded };
   }
@@ -1340,15 +1337,8 @@ export default function App() {
   async function uploadAttachment(submissionUuid: string, attachment: EvidenceAttachment) {
     const token = await loadJson<string | null>(STORAGE_KEYS.authToken, null);
     const url = `${API_BASE_URL}/mobile/secure/submissions/${submissionUuid}/attachments`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    try {
-      // Native multipart upload is more reliable on Android for file:// and
-      // content:// URIs than building FormData through fetch. The stable local
-      // attachment ID makes retries safe if the server received the file but
-      // the client timed out before receiving the response.
-      const result = await new File(attachment.uri).upload(url, {
+    // Reuse the client attachment ID on every attempt, including lost responses.
+    await uploadEvidenceWithRetry((signal) => new File(attachment.uri).upload(url, {
         httpMethod: 'POST',
         uploadType: UploadType.MULTIPART,
         fieldName: 'file',
@@ -1364,21 +1354,8 @@ export default function App() {
           original_name: attachment.name,
           captured_at: attachment.capturedAt,
         },
-        signal: controller.signal,
-      });
-
-      if (result.status < 200 || result.status >= 300) {
-        throw new Error(uploadResponseError(result.status, result.body, url));
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Evidence upload timed out after ${Math.round(REQUEST_TIMEOUT_MS / 1000)}s.`);
-      }
-
-      throw new Error(error instanceof Error ? error.message : 'Evidence upload failed.');
-    } finally {
-      clearTimeout(timeout);
-    }
+        signal,
+      }));
   }
 
   async function createSignatureAttachments(draft: DraftAssessment): Promise<EvidenceAttachment[]> {
@@ -3480,29 +3457,6 @@ async function responseError(response: Response, url: string): Promise<string> {
   }
 
   return `Request failed (${response.status}) at ${url}${detail ? `: ${detail}` : '.'}`;
-}
-
-function uploadResponseError(status: number, body: string, url: string): string {
-  let detail = '';
-  try {
-    const json = JSON.parse(body) as { message?: unknown; error?: unknown };
-    detail = String(json.message ?? json.error ?? '').trim();
-  } catch {
-    detail = body.replace(/\s+/g, ' ').trim();
-  }
-
-  return `Request failed (${status}) at ${url}${detail ? `: ${detail}` : '.'}`;
-}
-
-class SyncUploadError extends Error {
-  constructor(
-    message: string,
-    readonly remoteUuid: string,
-    readonly attachmentStatus: NonNullable<QueueItem['attachmentStatus']>
-  ) {
-    super(message);
-    this.name = 'SyncUploadError';
-  }
 }
 
 function initialAttachmentStatus(draft: DraftAssessment): NonNullable<QueueItem['attachmentStatus']> {
